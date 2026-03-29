@@ -87,6 +87,43 @@ Namespace: `/api/v1`
 - `handovers`: create + timeline retrieval
 - `memory`: fetch/search/promote
 - `evaluations`: request/submit/owner override (audited)
+- `agent-tools`: machine-oriented tool invocation API for AI agents
+
+## Agent-First Integration
+Agent auth (recommended):
+```http
+Authorization: Bearer soa_dev_agent_key
+```
+
+Discover tools:
+```bash
+curl http://localhost:8000/api/v1/agent-tools/manifest \
+  -H "Authorization: Bearer soa_dev_agent_key"
+```
+
+Call a tool:
+```bash
+curl -X POST http://localhost:8000/api/v1/agent-tools/create_project \
+  -H "Authorization: Bearer soa_dev_agent_key" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: create-project-001" \
+  -d '{
+    "name": "Project Atlas",
+    "description": "Agent-run delivery workflow",
+    "objective": "Build V1 vertical slice",
+    "owner": "owner-1",
+    "status": "active",
+    "tags": ["agentic", "v1"]
+  }'
+```
+
+## MCP Compatibility
+- MCP server is mounted on `/mcp` (when enabled).
+- Same backend tools are exposed via MCP (`tool_manifest`, `call_tool`).
+- Run stdio MCP server:
+  ```powershell
+  .\.venv\Scripts\python.exe -m app.mcp.server
+  ```
 
 ## V1 Guardrails
 - One manager per project.
@@ -100,6 +137,7 @@ Namespace: `/api/v1`
 - [Product Primer](./PRIMER.md)
 - [Agent Operating Contract](./AGENTS.md)
 - [Current Execution Queue](./NEXT.md)
+- [Agent Integration Architecture](./docs/architecture/agent-integration.md)
 - [Public Roadmap](./ROADMAP.md)
 - [Showcase Notes](./SHOWCASE.md)
 

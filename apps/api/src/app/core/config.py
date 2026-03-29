@@ -11,9 +11,11 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     sentientops_max_subtask_depth: int = 2
     sentientops_max_subtasks_per_parent: int = 10
+    # Comma-separated credentials: agent_id:api_key:role
+    sentientops_agent_api_keys: str = "agent-system:soa_dev_agent_key:agent"
+    sentientops_enable_mcp: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
-

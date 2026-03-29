@@ -43,4 +43,26 @@ export interface TaskContract {
   updated_at: string;
 }
 
+export interface AgentToolDefinition {
+  name: string;
+  description: string;
+}
+
+export interface AgentToolManifest {
+  kind: "agent_tool_manifest";
+  version: "v1";
+  tool_count: number;
+  tools: AgentToolDefinition[];
+}
+
+export interface AgentToolCallEnvelope {
+  tool: string;
+  actor: {
+    actor_id: string;
+    role: string;
+    auth_mode: string;
+  };
+  result: Record<string, unknown>;
+}
+
 export * from "./generated/openapi";

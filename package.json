@@ -7,9 +7,9 @@
     "dev": "pnpm -r --parallel dev",
     "dev:web": "pnpm --filter @sentientops/web dev",
     "dev:api": "powershell -ExecutionPolicy Bypass -File ops/scripts/api-dev.ps1",
+    "dev:mcp": "powershell -ExecutionPolicy Bypass -File ops/scripts/mcp-dev.ps1",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test"
   }
 }
-
