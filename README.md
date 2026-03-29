@@ -147,8 +147,9 @@ curl -X POST http://localhost:8000/api/v1/agent-tools/create_project \
 - Contracts build: TypeScript contracts compile.
 
 ## Build Notes
-- Clerk-protected routes are scaffolded.
-- If Clerk keys are missing, UI still builds in fallback mode for local setup.
+- Clerk auth is strict for application routes (`/`, `/projects`, `/tasks`, `/agents`, `/evaluations`, `/tools`).
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` must be configured for runtime access.
+- Frontend includes a full operator UI: Dashboard, Projects, Tasks (Kanban + Inspector), Agents, Evaluations, Tool Console.
 
 ## Road To MVP
 See [`ROADMAP.md`](./ROADMAP.md) for the planned progression from foundation scaffold to full end-to-end pilot.

@@ -3,16 +3,84 @@
 @tailwind utilities;
 
 :root {
-  --bg-start: #edf5ff;
-  --bg-end: #fef6e9;
+  --ink-950: #0b1218;
+  --ink-900: #13202b;
+  --ink-800: #1d2e3d;
+  --mist-100: #e9eef4;
+  --mist-50: #f4f7fb;
+  --paper: #f9fbfd;
+  --line: #d1dae4;
+  --teal-500: #00a49f;
+  --teal-400: #2cc7c0;
+  --amber-500: #dd8f3a;
+  --rose-500: #cd4f5d;
+  --shadow-soft: 0 12px 30px rgba(8, 24, 40, 0.12);
+  --shadow-hard: 0 20px 50px rgba(8, 24, 40, 0.2);
 }
 
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 10% 10%, rgba(17, 123, 255, 0.12), transparent 40%),
-    radial-gradient(circle at 90% 20%, rgba(242, 143, 59, 0.14), transparent 35%),
-    linear-gradient(120deg, var(--bg-start), var(--bg-end));
-  color: #121314;
+  background-color: var(--ink-950);
+  background-image:
+    radial-gradient(circle at 12% 10%, rgba(0, 164, 159, 0.2), transparent 38%),
+    radial-gradient(circle at 82% 8%, rgba(221, 143, 58, 0.18), transparent 30%),
+    radial-gradient(circle at 70% 72%, rgba(44, 199, 192, 0.15), transparent 35%),
+    linear-gradient(150deg, #081018, #0b1218 45%, #121f2a 100%);
+  color: var(--mist-100);
+  font-family: var(--font-display), sans-serif;
 }
 
+* {
+  border-color: var(--line);
+}
+
+.panel {
+  border: 1px solid rgba(209, 218, 228, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(20, 34, 46, 0.84), rgba(15, 25, 34, 0.9));
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(6px);
+}
+
+.panel-light {
+  border: 1px solid rgba(209, 218, 228, 0.32);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(249, 251, 253, 0.96), rgba(233, 238, 244, 0.92));
+  color: var(--ink-900);
+  box-shadow: var(--shadow-soft);
+}
+
+.title-gradient {
+  background: linear-gradient(115deg, #f5f8fc, #a7efe8 55%, #f5c587);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.soft-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.soft-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.soft-scroll::-webkit-scrollbar-thumb {
+  background: rgba(209, 218, 228, 0.2);
+  border-radius: 999px;
+}
+
+.fade-up {
+  animation: fade-up 420ms ease-out both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

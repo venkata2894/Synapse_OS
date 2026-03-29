@@ -10,10 +10,26 @@ from app.services.repository import PROJECTS, create_project, update_project, ar
 router = APIRouter()
 
 
+@router.get("")
+def list_projects(actor: Actor = Depends(get_current_actor)) -> dict:
+    _ = actor
+    items = sorted(PROJECTS.values(), key=lambda project: project.get("created_at", ""), reverse=True)
+    return {"items": items, "count": len(items)}
+
+
 @router.post("")
 def create_project_endpoint(payload: ProjectCreate, actor: Actor = Depends(get_current_actor)) -> dict:
     _ = actor
     return create_project(payload)
+
+
+@router.get("/{project_id}")
+def get_project_endpoint(project_id: str, actor: Actor = Depends(get_current_actor)) -> dict:
+    _ = actor
+    project = PROJECTS.get(project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
+    return project
 
 
 @router.patch("/{project_id}")
@@ -44,4 +60,3 @@ def assign_manager(project_id: str, payload: ManagerAssignment, actor: Actor = D
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     project["manager_agent_id"] = payload.manager_agent_id
     return project
-

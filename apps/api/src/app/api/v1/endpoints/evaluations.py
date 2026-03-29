@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.auth import Actor, get_current_actor
 from app.schemas.evaluation import EvaluationCreate, EvaluationOverrideRequest, EvaluationRequest
@@ -13,6 +13,31 @@ from app.services.repository import (
 )
 
 router = APIRouter()
+
+
+@router.get("")
+def list_evaluations(
+    project_id: str | None = Query(default=None),
+    agent_id: str | None = Query(default=None),
+    actor: Actor = Depends(get_current_actor),
+) -> dict:
+    _ = actor
+    items = list(EVALUATIONS.values())
+    if project_id:
+        items = [evaluation for evaluation in items if evaluation.get("project_id") == project_id]
+    if agent_id:
+        items = [evaluation for evaluation in items if evaluation.get("agent_id") == agent_id]
+
+    by_evaluation: dict[str, list[dict]] = {}
+    for audit in EVALUATION_OVERRIDE_AUDIT:
+        by_evaluation.setdefault(audit["evaluation_id"], []).append(audit)
+
+    enriched = []
+    for item in items:
+        audits = by_evaluation.get(item["id"], [])
+        enriched.append({**item, "override_audit_entries": audits})
+    enriched = sorted(enriched, key=lambda evaluation: evaluation.get("timestamp", ""), reverse=True)
+    return {"items": enriched, "count": len(enriched)}
 
 
 @router.post("/request")
@@ -79,4 +104,3 @@ def override_evaluation(
     evaluation.update(override_scores)
     evaluation["override_reason"] = payload.reason
     return {"evaluation": evaluation, "audit_recorded": True}
-

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.auth import Actor, get_current_actor
 from app.core.config import settings
@@ -19,6 +19,25 @@ from app.services.repository import EVALUATION_QUEUE, TASKS, TASK_CHILDREN, crea
 router = APIRouter()
 
 
+@router.get("")
+def list_tasks(
+    project_id: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    assigned_to: str | None = Query(default=None),
+    actor: Actor = Depends(get_current_actor),
+) -> dict:
+    _ = actor
+    items = list(TASKS.values())
+    if project_id:
+        items = [task for task in items if task.get("project_id") == project_id]
+    if status_filter:
+        items = [task for task in items if task.get("status") == status_filter]
+    if assigned_to:
+        items = [task for task in items if task.get("assigned_to") == assigned_to]
+    items = sorted(items, key=lambda task: task.get("updated_at", ""), reverse=True)
+    return {"items": items, "count": len(items)}
+
+
 @router.post("")
 def create_task_endpoint(payload: TaskCreate, actor: Actor = Depends(get_current_actor)) -> dict:
     _ = actor
@@ -33,6 +52,15 @@ def create_task_endpoint(payload: TaskCreate, actor: Actor = Depends(get_current
         except PolicyError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return create_task(payload)
+
+
+@router.get("/{task_id}")
+def get_task_endpoint(task_id: str, actor: Actor = Depends(get_current_actor)) -> dict:
+    _ = actor
+    task = TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+    return task
 
 
 @router.post("/{task_id}/assign")

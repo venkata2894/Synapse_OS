@@ -1,42 +1,148 @@
+"use client";
+
+import type { DashboardSummary } from "@sentientops/contracts";
 import Link from "next/link";
 
-import { AlertPanel } from "@/components/alert-panel";
-import { KanbanBoard } from "@/components/kanban-board";
+import { MetricCard } from "@/components/metric-card";
+import { QueryState } from "@/components/query-state";
+import { useActor } from "@/hooks/use-actor";
+import { usePollingQuery } from "@/hooks/use-polling-query";
+import { getDashboardSummary } from "@/lib/api-client";
+import { shortDate } from "@/lib/format";
 
-const cards = [
-  { label: "Active Projects", value: "1" },
-  { label: "Tasks in Progress", value: "0" },
-  { label: "Blocked Tasks", value: "0" },
-  { label: "Recent Handovers", value: "0" }
-];
+const emptySummary: DashboardSummary = {
+  totals: {
+    active_projects: 0,
+    tasks_in_progress: 0,
+    blocked_tasks: 0,
+    recent_handovers: 0,
+    low_score_alerts: 0
+  },
+  alerts: { blocked_tasks: [], low_scores: [] },
+  projects: [],
+  recent_handovers: [],
+  recent_evaluations: []
+};
 
 export default function HomePage() {
+  const actor = useActor();
+  const query = usePollingQuery(
+    () => getDashboardSummary({ actorId: actor.actorId, actorRole: actor.actorRole }),
+    [actor.actorId],
+    { enabled: actor.ready, initialData: emptySummary }
+  );
+  const summary = query.data ?? emptySummary;
+
   return (
-    <div className="space-y-6">
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {cards.map((card) => (
-          <article key={card.label} className="rounded-xl border border-slate-200 bg-white/85 p-4 shadow-sm">
-            <p className="text-xs text-slate-500">{card.label}</p>
-            <p className="mt-1 text-2xl font-semibold text-ink">{card.value}</p>
-          </article>
-        ))}
+    <div className="space-y-5">
+      <section className="panel p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Global Pulse</p>
+            <h3 className="mt-1 text-2xl font-semibold text-slate-100">Multi-Agent Operations Dashboard</h3>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Link href="/projects" className="rounded-lg border border-slate-300/30 bg-white/5 px-3 py-2 text-slate-100">
+              Project Details
+            </Link>
+            <Link href="/tasks" className="rounded-lg border border-slate-300/30 bg-white/5 px-3 py-2 text-slate-100">
+              Task Board
+            </Link>
+            <Link href="/tools" className="rounded-lg border border-teal-300/45 bg-teal-500/10 px-3 py-2 text-teal-100">
+              Open Tool Console
+            </Link>
+          </div>
+        </div>
+        <div className="mt-3">
+          <QueryState isLoading={query.isLoading} error={query.error} lastUpdatedAt={query.lastUpdatedAt} />
+        </div>
       </section>
 
-      <section className="flex flex-wrap gap-3 text-sm">
-        <Link className="rounded-lg bg-ink px-4 py-2 text-white" href="/projects">
-          Project Detail
-        </Link>
-        <Link className="rounded-lg bg-white px-4 py-2 text-ink ring-1 ring-slate-300" href="/agents">
-          Agent Profiles
-        </Link>
-        <Link className="rounded-lg bg-white px-4 py-2 text-ink ring-1 ring-slate-300" href="/evaluations">
-          Evaluation Summaries
-        </Link>
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+        <MetricCard label="Active Projects" value={summary.totals.active_projects} tone="teal" />
+        <MetricCard label="In Progress" value={summary.totals.tasks_in_progress} />
+        <MetricCard label="Blocked Tasks" value={summary.totals.blocked_tasks} tone="rose" />
+        <MetricCard label="Handovers" value={summary.totals.recent_handovers} tone="amber" />
+        <MetricCard label="Low Score Alerts" value={summary.totals.low_score_alerts} tone="rose" />
       </section>
 
-      <KanbanBoard />
-      <AlertPanel />
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="panel p-4">
+          <h4 className="text-lg font-semibold text-slate-100">Active Project Snapshots</h4>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-[0.14em] text-slate-400">
+                  <th className="pb-2">Project</th>
+                  <th className="pb-2">Status</th>
+                  <th className="pb-2">Tasks</th>
+                  <th className="pb-2">Blocked</th>
+                  <th className="pb-2">Evaluations</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-200">
+                {summary.projects.map((project) => (
+                  <tr key={project.project_id} className="border-t border-slate-300/15">
+                    <td className="py-2">{project.name}</td>
+                    <td className="py-2 capitalize">{project.status}</td>
+                    <td className="py-2">{project.task_count}</td>
+                    <td className="py-2">{project.blocked_count}</td>
+                    <td className="py-2">{project.evaluation_count}</td>
+                  </tr>
+                ))}
+                {!summary.projects.length ? (
+                  <tr>
+                    <td className="py-3 text-slate-400" colSpan={5}>
+                      No projects yet. Use Tool Console to create one.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="panel p-4">
+          <h4 className="text-lg font-semibold text-slate-100">Alerts</h4>
+          <div className="mt-3 space-y-2">
+            {summary.alerts.blocked_tasks.slice(0, 5).map((task) => (
+              <p key={task.id} className="rounded-lg border border-rose-300/35 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+                Blocked: {task.title}
+              </p>
+            ))}
+            {summary.alerts.low_scores.slice(0, 5).map((item) => (
+              <p
+                key={item.evaluation_id}
+                className="rounded-lg border border-amber-300/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+              >
+                Low score: Agent {item.agent_id} avg {item.avg.toFixed(1)}
+              </p>
+            ))}
+            {!summary.alerts.blocked_tasks.length && !summary.alerts.low_scores.length ? (
+              <p className="rounded-lg border border-teal-300/30 bg-teal-500/10 px-3 py-2 text-sm text-teal-100">
+                No critical alerts right now.
+              </p>
+            ) : null}
+          </div>
+        </article>
+      </section>
+
+      <section className="panel p-4">
+        <h4 className="text-lg font-semibold text-slate-100">Recent Evaluations</h4>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {summary.recent_evaluations.slice(0, 6).map((evaluation) => (
+            <article key={evaluation.id} className="rounded-xl border border-slate-300/20 bg-white/5 p-3">
+              <p className="text-xs text-slate-400">{shortDate(evaluation.timestamp)}</p>
+              <p className="mt-1 text-sm text-slate-100">Task: {evaluation.task_id}</p>
+              <p className="mt-1 text-xs text-slate-300">Agent: {evaluation.agent_id}</p>
+              <p className="mt-1 text-xs text-slate-300">
+                Quality: {evaluation.score_quality} • Reliability: {evaluation.score_reliability}
+              </p>
+            </article>
+          ))}
+          {!summary.recent_evaluations.length ? <p className="text-sm text-slate-400">No evaluations recorded yet.</p> : null}
+        </div>
+      </section>
     </div>
   );
 }
-
