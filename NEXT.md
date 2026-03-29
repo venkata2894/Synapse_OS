@@ -3,6 +3,10 @@
 ## Current Phase
 Foundation scaffold complete (monorepo + API/UI skeleton + memory/docs structure).
 
+## Recently Completed
+1. Frontend pass moved to light visual system with responsive page alignment updates.
+2. In-memory API demo dataset now auto-seeds on startup for manual product walkthroughs.
+
 ## Immediate Queue
 1. Wire real persistence for endpoint handlers (service + repository implementations).
 2. Add OpenAPI to TypeScript contract generation workflow.
@@ -14,4 +18,3 @@ Foundation scaffold complete (monorepo + API/UI skeleton + memory/docs structure
 - All V1 product invariants are captured in `apps/api/src/app/services/policies.py`.
 - API namespace is `/api/v1`.
 - Kanban status set follows PRD statuses.
-

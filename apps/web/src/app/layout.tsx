@@ -27,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en">
         <body className={`${display.variable} ${mono.variable}`}>
           <AppShell
-            headerActions={<UserButton appearance={{ elements: { userButtonAvatarBox: "ring-2 ring-white/20" } }} />}
+            headerActions={<UserButton appearance={{ elements: { userButtonAvatarBox: "ring-2 ring-slate-300/80" } }} />}
           >
             {children}
           </AppShell>

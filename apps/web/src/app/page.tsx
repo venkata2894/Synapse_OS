@@ -38,17 +38,17 @@ export default function HomePage() {
       <section className="panel p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Global Pulse</p>
-            <h3 className="mt-1 text-2xl font-semibold text-slate-100">Multi-Agent Operations Dashboard</h3>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Global Pulse</p>
+            <h3 className="mt-1 text-2xl font-semibold text-slate-900">Multi-Agent Operations Dashboard</h3>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <Link href="/projects" className="rounded-lg border border-slate-300/30 bg-white/5 px-3 py-2 text-slate-100">
+            <Link href="/projects" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-700">
               Project Details
             </Link>
-            <Link href="/tasks" className="rounded-lg border border-slate-300/30 bg-white/5 px-3 py-2 text-slate-100">
+            <Link href="/tasks" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-700">
               Task Board
             </Link>
-            <Link href="/tools" className="rounded-lg border border-teal-300/45 bg-teal-500/10 px-3 py-2 text-teal-100">
+            <Link href="/tools" className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-teal-700">
               Open Tool Console
             </Link>
           </div>
@@ -58,7 +58,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Active Projects" value={summary.totals.active_projects} tone="teal" />
         <MetricCard label="In Progress" value={summary.totals.tasks_in_progress} />
         <MetricCard label="Blocked Tasks" value={summary.totals.blocked_tasks} tone="rose" />
@@ -68,11 +68,11 @@ export default function HomePage() {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel p-4">
-          <h4 className="text-lg font-semibold text-slate-100">Active Project Snapshots</h4>
+          <h4 className="text-lg font-semibold text-slate-900">Active Project Snapshots</h4>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-[0.14em] text-slate-400">
+                <tr className="text-left text-xs uppercase tracking-[0.14em] text-slate-500">
                   <th className="pb-2">Project</th>
                   <th className="pb-2">Status</th>
                   <th className="pb-2">Tasks</th>
@@ -80,9 +80,9 @@ export default function HomePage() {
                   <th className="pb-2">Evaluations</th>
                 </tr>
               </thead>
-              <tbody className="text-slate-200">
+              <tbody className="text-slate-800">
                 {summary.projects.map((project) => (
-                  <tr key={project.project_id} className="border-t border-slate-300/15">
+                  <tr key={project.project_id} className="border-t border-slate-200">
                     <td className="py-2">{project.name}</td>
                     <td className="py-2 capitalize">{project.status}</td>
                     <td className="py-2">{project.task_count}</td>
@@ -92,7 +92,7 @@ export default function HomePage() {
                 ))}
                 {!summary.projects.length ? (
                   <tr>
-                    <td className="py-3 text-slate-400" colSpan={5}>
+                    <td className="py-3 text-slate-500" colSpan={5}>
                       No projects yet. Use Tool Console to create one.
                     </td>
                   </tr>
@@ -103,23 +103,20 @@ export default function HomePage() {
         </article>
 
         <article className="panel p-4">
-          <h4 className="text-lg font-semibold text-slate-100">Alerts</h4>
+          <h4 className="text-lg font-semibold text-slate-900">Alerts</h4>
           <div className="mt-3 space-y-2">
             {summary.alerts.blocked_tasks.slice(0, 5).map((task) => (
-              <p key={task.id} className="rounded-lg border border-rose-300/35 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              <p key={task.id} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 Blocked: {task.title}
               </p>
             ))}
             {summary.alerts.low_scores.slice(0, 5).map((item) => (
-              <p
-                key={item.evaluation_id}
-                className="rounded-lg border border-amber-300/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-              >
+              <p key={item.evaluation_id} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                 Low score: Agent {item.agent_id} avg {item.avg.toFixed(1)}
               </p>
             ))}
             {!summary.alerts.blocked_tasks.length && !summary.alerts.low_scores.length ? (
-              <p className="rounded-lg border border-teal-300/30 bg-teal-500/10 px-3 py-2 text-sm text-teal-100">
+              <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700">
                 No critical alerts right now.
               </p>
             ) : null}
@@ -128,21 +125,22 @@ export default function HomePage() {
       </section>
 
       <section className="panel p-4">
-        <h4 className="text-lg font-semibold text-slate-100">Recent Evaluations</h4>
+        <h4 className="text-lg font-semibold text-slate-900">Recent Evaluations</h4>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {summary.recent_evaluations.slice(0, 6).map((evaluation) => (
-            <article key={evaluation.id} className="rounded-xl border border-slate-300/20 bg-white/5 p-3">
-              <p className="text-xs text-slate-400">{shortDate(evaluation.timestamp)}</p>
-              <p className="mt-1 text-sm text-slate-100">Task: {evaluation.task_id}</p>
-              <p className="mt-1 text-xs text-slate-300">Agent: {evaluation.agent_id}</p>
-              <p className="mt-1 text-xs text-slate-300">
-                Quality: {evaluation.score_quality} • Reliability: {evaluation.score_reliability}
+            <article key={evaluation.id} className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-xs text-slate-500">{shortDate(evaluation.timestamp)}</p>
+              <p className="mt-1 text-sm text-slate-900">Task: {evaluation.task_id}</p>
+              <p className="mt-1 text-xs text-slate-600">Agent: {evaluation.agent_id}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                Quality: {evaluation.score_quality} | Reliability: {evaluation.score_reliability}
               </p>
             </article>
           ))}
-          {!summary.recent_evaluations.length ? <p className="text-sm text-slate-400">No evaluations recorded yet.</p> : null}
+          {!summary.recent_evaluations.length ? <p className="text-sm text-slate-500">No evaluations recorded yet.</p> : null}
         </div>
       </section>
     </div>
   );
 }
+

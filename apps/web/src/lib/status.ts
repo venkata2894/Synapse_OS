@@ -14,15 +14,15 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 export const TASK_STATUS_STYLES: Record<TaskStatus, string> = {
-  backlog: "border-slate-300/35 bg-slate-500/10 text-slate-200",
-  ready: "border-blue-300/35 bg-blue-500/10 text-blue-100",
-  assigned: "border-cyan-300/35 bg-cyan-500/10 text-cyan-100",
-  in_progress: "border-teal-300/35 bg-teal-500/10 text-teal-100",
-  awaiting_handover: "border-indigo-300/35 bg-indigo-500/10 text-indigo-100",
-  under_review: "border-amber-300/35 bg-amber-500/10 text-amber-100",
-  blocked: "border-rose-300/35 bg-rose-500/12 text-rose-100",
-  completed: "border-emerald-300/35 bg-emerald-500/12 text-emerald-100",
-  reopened: "border-orange-300/35 bg-orange-500/12 text-orange-100"
+  backlog: "border-slate-200 bg-slate-100 text-slate-700",
+  ready: "border-blue-200 bg-blue-50 text-blue-700",
+  assigned: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  in_progress: "border-teal-200 bg-teal-50 text-teal-700",
+  awaiting_handover: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  under_review: "border-amber-200 bg-amber-50 text-amber-700",
+  blocked: "border-rose-200 bg-rose-50 text-rose-700",
+  completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  reopened: "border-orange-200 bg-orange-50 text-orange-700"
 };
 
 export const TASK_STATUS_OPTIONS = TASK_STATUSES.map((status) => ({

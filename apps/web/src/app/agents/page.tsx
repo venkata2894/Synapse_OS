@@ -54,13 +54,13 @@ export default function AgentsPage() {
       <article className="panel p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Agent Registry</p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-100">Performance and Contribution</h3>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Agent Registry</p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-900">Performance and Contribution</h3>
           </div>
           <select
             value={roleFilter}
             onChange={(event) => setRoleFilter(event.target.value)}
-            className="rounded-lg border border-slate-300/30 bg-slate-900/40 px-3 py-2 text-sm text-slate-100"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
           >
             <option value="">All Roles</option>
             <option value="manager">Manager</option>
@@ -77,7 +77,7 @@ export default function AgentsPage() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-[0.13em] text-slate-400">
+              <tr className="text-left text-xs uppercase tracking-[0.13em] text-slate-500">
                 <th className="pb-2">Agent</th>
                 <th className="pb-2">Role</th>
                 <th className="pb-2">Status</th>
@@ -89,22 +89,22 @@ export default function AgentsPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className="border-t border-slate-300/15 text-slate-100">
+                <tr key={row.id} className="border-t border-slate-200 text-slate-800">
                   <td className="py-2">
                     <p className="font-medium">{row.name}</p>
-                    <p className="text-xs text-slate-400">{row.id}</p>
+                    <p className="break-all text-xs text-slate-500">{row.id}</p>
                   </td>
                   <td className="py-2 capitalize">{row.role}</td>
                   <td className="py-2 capitalize">{row.status}</td>
                   <td className="py-2">{row.assignedCount}</td>
                   <td className="py-2">{row.completedCount}</td>
                   <td className="py-2">{row.avgScore ? row.avgScore.toFixed(1) : "N/A"}</td>
-                  <td className="py-2 text-xs text-slate-300">{row.capabilities.join(", ") || "N/A"}</td>
+                  <td className="py-2 text-xs text-slate-600">{row.capabilities.join(", ") || "N/A"}</td>
                 </tr>
               ))}
               {!rows.length ? (
                 <tr>
-                  <td colSpan={7} className="py-3 text-slate-400">
+                  <td colSpan={7} className="py-3 text-slate-500">
                     No agents found.
                   </td>
                 </tr>

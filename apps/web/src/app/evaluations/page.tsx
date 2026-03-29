@@ -47,14 +47,14 @@ export default function EvaluationsPage() {
       <article className="panel p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Evaluator Layer</p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-100">Scorecards and Audit Visibility</h3>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Evaluator Layer</p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-900">Scorecards and Audit Visibility</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             <select
               value={projectId}
               onChange={(event) => setProjectId(event.target.value)}
-              className="rounded-lg border border-slate-300/30 bg-slate-900/40 px-3 py-2 text-sm text-slate-100"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
             >
               <option value="">All Projects</option>
               {(projectsQuery.data?.items ?? []).map((project) => (
@@ -66,7 +66,7 @@ export default function EvaluationsPage() {
             <select
               value={agentId}
               onChange={(event) => setAgentId(event.target.value)}
-              className="rounded-lg border border-slate-300/30 bg-slate-900/40 px-3 py-2 text-sm text-slate-100"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
             >
               <option value="">All Agents</option>
               {(agentsQuery.data?.items ?? []).map((agent) => (
@@ -89,12 +89,12 @@ export default function EvaluationsPage() {
       <article className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {cards.map((card) => (
           <div key={card.id} className="panel p-4">
-            <p className="text-xs text-slate-400">{shortDate(card.timestamp)}</p>
-            <p className="mt-1 text-sm text-slate-200">Task {card.task_id}</p>
-            <p className="text-xs text-slate-400">Agent {card.agent_id}</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-100">{card.average.toFixed(1)} / 10</p>
+            <p className="text-xs text-slate-500">{shortDate(card.timestamp)}</p>
+            <p className="mt-1 text-sm text-slate-800">Task {card.task_id}</p>
+            <p className="text-xs text-slate-500">Agent {card.agent_id}</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-900">{card.average.toFixed(1)} / 10</p>
 
-            <div className="mt-3 space-y-1 text-xs text-slate-300">
+            <div className="mt-3 space-y-1 text-xs text-slate-700">
               <p>Completion {card.score_completion}</p>
               <p>Quality {card.score_quality}</p>
               <p>Reliability {card.score_reliability}</p>
@@ -104,13 +104,14 @@ export default function EvaluationsPage() {
               <p>Improvement {card.score_improvement}</p>
             </div>
 
-            <div className="mt-3 rounded-lg border border-slate-300/20 bg-white/5 p-2 text-xs text-slate-200">
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
               Audit entries: {card.override_audit_entries?.length ?? 0}
             </div>
           </div>
         ))}
-        {!cards.length ? <p className="text-sm text-slate-400">No evaluations available for selected filters.</p> : null}
+        {!cards.length ? <p className="text-sm text-slate-500">No evaluations available for selected filters.</p> : null}
       </article>
     </section>
   );
 }
+

@@ -51,9 +51,9 @@ export default function ProjectsPage() {
   }, [tasksQuery.data?.items]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+    <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
       <aside className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Project Registry</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Project Registry</p>
         <QueryState
           isLoading={projectsQuery.isLoading}
           error={projectsQuery.error}
@@ -68,16 +68,16 @@ export default function ProjectsPage() {
               className={[
                 "w-full rounded-xl border px-3 py-3 text-left transition",
                 project.id === selectedProjectId
-                  ? "border-teal-300/45 bg-teal-500/10 text-teal-100"
-                  : "border-slate-300/20 bg-white/5 text-slate-100 hover:bg-white/10"
+                  ? "border-teal-300 bg-teal-50 text-teal-700"
+                  : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
               ].join(" ")}
             >
               <p className="text-sm font-medium">{project.name}</p>
-              <p className="mt-1 text-xs capitalize text-slate-300">{project.status}</p>
+              <p className="mt-1 text-xs capitalize text-slate-500">{project.status}</p>
             </button>
           ))}
           {!projectsQuery.data?.items.length ? (
-            <p className="rounded-lg border border-slate-300/20 bg-white/5 px-3 py-2 text-sm text-slate-300">
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
               No projects available yet.
             </p>
           ) : null}
@@ -86,12 +86,12 @@ export default function ProjectsPage() {
 
       <section className="space-y-4">
         <article className="panel p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Project Overview</p>
-          <h3 className="mt-1 text-2xl font-semibold text-slate-100">{selectedProject?.name ?? "Select a project"}</h3>
-          <p className="mt-2 text-sm text-slate-300">{selectedProject?.objective ?? "No project selected."}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-200">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Project Overview</p>
+          <h3 className="mt-1 text-2xl font-semibold text-slate-900">{selectedProject?.name ?? "Select a project"}</h3>
+          <p className="mt-2 text-sm text-slate-700">{selectedProject?.objective ?? "No project selected."}</p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
             {(selectedProject?.tags ?? []).map((tag) => (
-              <span key={tag} className="rounded-full border border-slate-300/30 bg-white/5 px-3 py-1">
+              <span key={tag} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                 {tag}
               </span>
             ))}
@@ -100,20 +100,20 @@ export default function ProjectsPage() {
 
         <div className="grid gap-4 xl:grid-cols-2">
           <article className="panel p-4">
-            <p className="text-sm font-semibold text-slate-100">Task Board Summary</p>
+            <p className="text-sm font-semibold text-slate-900">Task Board Summary</p>
             <QueryState isLoading={tasksQuery.isLoading} error={tasksQuery.error} lastUpdatedAt={tasksQuery.lastUpdatedAt} />
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
               {Object.entries(TASK_STATUS_LABELS).map(([status, label]) => (
-                <div key={status} className="rounded-lg border border-slate-300/20 bg-white/5 px-3 py-2">
-                  <p className="text-xs text-slate-400">{label}</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-100">{statusCounts[status] ?? 0}</p>
+                <div key={status} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-xs text-slate-500">{label}</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{statusCounts[status] ?? 0}</p>
                 </div>
               ))}
             </div>
           </article>
 
           <article className="panel p-4">
-            <p className="text-sm font-semibold text-slate-100">Evaluation Quick Pane</p>
+            <p className="text-sm font-semibold text-slate-900">Evaluation Quick Pane</p>
             <QueryState
               isLoading={evaluationsQuery.isLoading}
               error={evaluationsQuery.error}
@@ -121,15 +121,13 @@ export default function ProjectsPage() {
             />
             <div className="mt-3 space-y-2">
               {(evaluationsQuery.data?.items ?? []).slice(0, 6).map((evaluation) => (
-                <div key={evaluation.id} className="rounded-lg border border-slate-300/20 bg-white/5 px-3 py-2">
-                  <p className="text-sm text-slate-100">Task {evaluation.task_id}</p>
-                  <p className="text-xs text-slate-300">
-                    Agent {evaluation.agent_id} • Quality {evaluation.score_quality}/10
-                  </p>
+                <div key={evaluation.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-sm text-slate-900">Task {evaluation.task_id}</p>
+                  <p className="text-xs text-slate-600">Agent {evaluation.agent_id} | Quality {evaluation.score_quality}/10</p>
                 </div>
               ))}
               {!evaluationsQuery.data?.items.length ? (
-                <p className="text-sm text-slate-400">No evaluations recorded for this project yet.</p>
+                <p className="text-sm text-slate-500">No evaluations recorded for this project yet.</p>
               ) : null}
             </div>
           </article>
@@ -138,3 +136,5 @@ export default function ProjectsPage() {
     </div>
   );
 }
+
+

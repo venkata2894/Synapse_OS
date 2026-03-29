@@ -6,12 +6,13 @@ type QueryStateProps = {
 
 export function QueryState({ isLoading, error, lastUpdatedAt }: QueryStateProps) {
   if (error) {
-    return <p className="rounded-lg border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">{error}</p>;
+    return <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>;
   }
   return (
-    <p className="text-xs text-slate-400">
-      {isLoading ? "Syncing..." : "Synced"} {lastUpdatedAt ? `• ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}
+    <p className="text-xs text-slate-500">
+      {isLoading ? "Syncing..." : "Synced"} {lastUpdatedAt ? `| ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}
     </p>
   );
 }
+
 

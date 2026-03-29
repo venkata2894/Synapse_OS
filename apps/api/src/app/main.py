@@ -1,16 +1,28 @@
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.services.repository import seed_demo_data
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+
+@asynccontextmanager
+async def app_lifespan(_: FastAPI):
+    if settings.sentientops_seed_demo_data and not os.getenv("PYTEST_CURRENT_TEST"):
+        if seed_demo_data():
+            logger.info("Loaded SentientOps demo dataset.")
+    yield
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=app_lifespan)
 
 app.add_middleware(
     CORSMiddleware,

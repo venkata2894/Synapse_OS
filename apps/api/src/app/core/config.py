@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Comma-separated credentials: agent_id:api_key:role
     sentientops_agent_api_keys: str = "agent-system:soa_dev_agent_key:agent"
     sentientops_enable_mcp: bool = True
+    sentientops_seed_demo_data: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
