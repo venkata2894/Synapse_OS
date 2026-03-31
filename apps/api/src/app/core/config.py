@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+REPO_ROOT = Path(__file__).resolve().parents[5]
 
 
 class Settings(BaseSettings):
@@ -23,7 +28,7 @@ class Settings(BaseSettings):
     sentientops_default_page_size: int = 100
     sentientops_max_page_size: int = 500
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(REPO_ROOT / ".env"), extra="ignore")
 
 
 settings = Settings()
