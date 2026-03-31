@@ -1,12 +1,21 @@
 "use client";
 
 import type { ToolRunRecord } from "@sentientops/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AgentKeyPanel } from "@/components/agent-key-panel";
 import { useAgentKey } from "@/hooks/use-agent-key";
 import { callAgentTool, getAgentToolManifest } from "@/lib/api-client";
 import { shortDate } from "@/lib/format";
+
+type PresetId = "create_project" | "create_task" | "transition_task" | "request_evaluation";
+
+const PRESET_LABELS: Record<PresetId, string> = {
+  create_project: "Create Project",
+  create_task: "Create Task",
+  transition_task: "Transition Task",
+  request_evaluation: "Request Evaluation"
+};
 
 export default function ToolConsolePage() {
   const { agentKey, saveAgentKey, isLoaded } = useAgentKey();
@@ -18,6 +27,20 @@ export default function ToolConsolePage() {
   const [isLoadingManifest, setIsLoadingManifest] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [history, setHistory] = useState<ToolRunRecord[]>([]);
+
+  const [presetId, setPresetId] = useState<PresetId>("create_project");
+  const [presetFields, setPresetFields] = useState<Record<string, string>>({
+    name: "Project Atlas",
+    description: "Agent-run project",
+    objective: "Ship production flow",
+    owner: "owner-1",
+    project_id: "",
+    title: "Implement board transitions",
+    task_id: "",
+    target_status: "in_progress",
+    agent_id: "",
+    requested_by: "owner-1"
+  });
 
   useEffect(() => {
     if (!isLoaded || !agentKey.trim()) {
@@ -48,6 +71,48 @@ export default function ToolConsolePage() {
     };
   }, [agentKey, isLoaded]);
 
+  const presetPayload = useMemo(() => {
+    switch (presetId) {
+      case "create_project":
+        return {
+          name: presetFields.name || "Project Atlas",
+          description: presetFields.description || "Agent-run project",
+          objective: presetFields.objective || "Ship production flow",
+          owner: presetFields.owner || "owner-1",
+          status: "active",
+          tags: ["v1", "agent-first"]
+        };
+      case "create_task":
+        return {
+          project_id: presetFields.project_id,
+          title: presetFields.title || "Implement board transitions",
+          description: "Task created from guided preset.",
+          created_by: presetFields.owner || "owner-1",
+          priority: "high",
+          status: "ready",
+          dependencies: [],
+          acceptance_criteria: "Task transitions are valid",
+          context_refs: [],
+          parent_task_depth: 0
+        };
+      case "transition_task":
+        return {
+          task_id: presetFields.task_id,
+          target_status: presetFields.target_status || "in_progress",
+          metadata: {}
+        };
+      case "request_evaluation":
+        return {
+          project_id: presetFields.project_id,
+          task_id: presetFields.task_id,
+          agent_id: presetFields.agent_id || "agent-worker-lex",
+          requested_by: presetFields.requested_by || "owner-1"
+        };
+      default:
+        return {};
+    }
+  }, [presetId, presetFields]);
+
   const runTool = async () => {
     if (!toolName) return;
     if (!agentKey.trim()) {
@@ -58,12 +123,7 @@ export default function ToolConsolePage() {
     setIsRunning(true);
     try {
       const payload = JSON.parse(payloadText) as Record<string, unknown>;
-      const response = await callAgentTool(
-        agentKey.trim(),
-        toolName,
-        payload,
-        idempotencyKey.trim() || undefined
-      );
+      const response = await callAgentTool(agentKey.trim(), toolName, payload, idempotencyKey.trim() || undefined);
       const record: ToolRunRecord = {
         id: crypto.randomUUID(),
         tool: toolName,
@@ -98,7 +158,7 @@ export default function ToolConsolePage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Agent Tool Runner</p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-900">Invoke MCP and Tool-Compatible Backend Actions</h3>
+            <h3 className="mt-1 text-xl font-semibold text-slate-900">Guided Presets + Raw JSON</h3>
           </div>
           <p className="text-xs text-slate-500">{isLoadingManifest ? "Loading manifest..." : `${manifest.length} tools`}</p>
         </div>
@@ -107,8 +167,44 @@ export default function ToolConsolePage() {
           <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
         ) : null}
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[300px_1fr]">
-          <div className="space-y-2">
+        <div className="mt-4 grid gap-4 xl:grid-cols-[340px_1fr]">
+          <div className="space-y-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Guided Preset</p>
+              <select
+                value={presetId}
+                onChange={(event) => setPresetId(event.target.value as PresetId)}
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+              >
+                {Object.entries(PRESET_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 space-y-2">
+                {["name", "project_id", "task_id", "target_status", "agent_id"].map((field) => (
+                  <input
+                    key={field}
+                    value={presetFields[field] ?? ""}
+                    placeholder={field}
+                    onChange={(event) => setPresetFields((previous) => ({ ...previous, [field]: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800"
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setToolName(presetId);
+                  setPayloadText(JSON.stringify(presetPayload, null, 2));
+                }}
+                className="mt-3 w-full rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs text-indigo-700"
+              >
+                Apply Preset to Payload
+              </button>
+            </div>
+
             <label className="text-xs uppercase tracking-[0.12em] text-slate-500">Tool</label>
             <select
               value={toolName}
@@ -134,7 +230,7 @@ export default function ToolConsolePage() {
               type="button"
               onClick={() => void runTool()}
               disabled={isRunning || !toolName}
-              className="mt-2 w-full rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-sm text-teal-700 disabled:opacity-55"
+              className="w-full rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-sm text-teal-700 disabled:opacity-55"
             >
               {isRunning ? "Running..." : "Run Tool"}
             </button>
@@ -145,7 +241,7 @@ export default function ToolConsolePage() {
             <textarea
               value={payloadText}
               onChange={(event) => setPayloadText(event.target.value)}
-              className="soft-scroll mt-2 h-56 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 outline-none ring-teal-400/50 focus:ring-2"
+              className="soft-scroll mt-2 h-72 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 outline-none ring-teal-400/50 focus:ring-2"
             />
           </div>
         </div>
@@ -183,4 +279,3 @@ export default function ToolConsolePage() {
     </section>
   );
 }
-

@@ -2,11 +2,15 @@ import type {
   AgentContract,
   AgentToolCallEnvelope,
   AgentToolManifest,
+  BoardSnapshot,
   DashboardSummary,
   EvaluationContract,
   ListResponse,
+  ProcessTemplate,
   ProjectContract,
-  TaskContract
+  TaskContract,
+  TaskTimelineResponse,
+  TaskTransitionResponse
 } from "@sentientops/contracts";
 
 type ActorContext = {
@@ -61,12 +65,14 @@ export async function getProject(actor: ActorContext, projectId: string): Promis
 
 export async function listTasks(
   actor: ActorContext,
-  filters: { projectId?: string; status?: string; assignedTo?: string } = {}
+  filters: { projectId?: string; status?: string; assignedTo?: string; limit?: number; offset?: number } = {}
 ): Promise<ListResponse<TaskContract>> {
   const params = new URLSearchParams();
   if (filters.projectId) params.set("project_id", filters.projectId);
   if (filters.status) params.set("status", filters.status);
   if (filters.assignedTo) params.set("assigned_to", filters.assignedTo);
+  if (typeof filters.limit === "number") params.set("limit", String(filters.limit));
+  if (typeof filters.offset === "number") params.set("offset", String(filters.offset));
   const query = params.toString() ? `?${params.toString()}` : "";
 
   return requestJson<ListResponse<TaskContract>>(`/tasks${query}`, {
@@ -77,11 +83,13 @@ export async function listTasks(
 
 export async function listAgents(
   actor: ActorContext,
-  filters: { projectId?: string; role?: string } = {}
+  filters: { projectId?: string; role?: string; limit?: number; offset?: number } = {}
 ): Promise<ListResponse<AgentContract>> {
   const params = new URLSearchParams();
   if (filters.projectId) params.set("project_id", filters.projectId);
   if (filters.role) params.set("role", filters.role);
+  if (typeof filters.limit === "number") params.set("limit", String(filters.limit));
+  if (typeof filters.offset === "number") params.set("offset", String(filters.offset));
   const query = params.toString() ? `?${params.toString()}` : "";
 
   return requestJson<ListResponse<AgentContract>>(`/agents${query}`, {
@@ -92,11 +100,13 @@ export async function listAgents(
 
 export async function listEvaluations(
   actor: ActorContext,
-  filters: { projectId?: string; agentId?: string } = {}
+  filters: { projectId?: string; agentId?: string; limit?: number; offset?: number } = {}
 ): Promise<ListResponse<EvaluationContract>> {
   const params = new URLSearchParams();
   if (filters.projectId) params.set("project_id", filters.projectId);
   if (filters.agentId) params.set("agent_id", filters.agentId);
+  if (typeof filters.limit === "number") params.set("limit", String(filters.limit));
+  if (typeof filters.offset === "number") params.set("offset", String(filters.offset));
   const query = params.toString() ? `?${params.toString()}` : "";
 
   return requestJson<ListResponse<EvaluationContract>>(`/evaluations${query}`, {
@@ -107,6 +117,66 @@ export async function listEvaluations(
 
 export async function fetchTaskContext(agentApiKey: string, taskId: string): Promise<Record<string, unknown>> {
   return callAgentTool(agentApiKey, "fetch_task_context", { task_id: taskId });
+}
+
+export async function getBoard(actor: ActorContext, projectId: string): Promise<BoardSnapshot> {
+  return requestJson<BoardSnapshot>(`/boards/${projectId}`, {
+    method: "GET",
+    headers: actorHeaders(actor)
+  });
+}
+
+export async function transitionTask(
+  actor: ActorContext,
+  taskId: string,
+  payload: {
+    target_status: string;
+    reason?: string;
+    blocker_reason?: string;
+    metadata?: Record<string, unknown>;
+    assigned_to?: string;
+  }
+): Promise<TaskTransitionResponse> {
+  return requestJson<TaskTransitionResponse>(`/tasks/${taskId}/transition`, {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getTaskTimeline(actor: ActorContext, taskId: string): Promise<TaskTimelineResponse> {
+  return requestJson<TaskTimelineResponse>(`/tasks/${taskId}/timeline`, {
+    method: "GET",
+    headers: actorHeaders(actor)
+  });
+}
+
+export async function getDefaultProcessTemplate(actor: ActorContext): Promise<ProcessTemplate> {
+  return requestJson<ProcessTemplate>("/process/templates/default", {
+    method: "GET",
+    headers: actorHeaders(actor)
+  });
+}
+
+export async function bootstrapProjectProcess(actor: ActorContext, projectId: string): Promise<Record<string, unknown>> {
+  return requestJson<Record<string, unknown>>(`/projects/${projectId}/process/bootstrap`, {
+    method: "POST",
+    headers: actorHeaders(actor)
+  });
+}
+
+export function openProjectEventStream(
+  projectId: string,
+  actorId: string,
+  token?: string
+): EventSource {
+  const params = new URLSearchParams({ project_id: projectId });
+  if (actorId) params.set("actor_id", actorId);
+  if (token) params.set("token", token);
+  return new EventSource(`${API_BASE_URL}/events/stream?${params.toString()}`);
 }
 
 export async function getAgentToolManifest(agentApiKey: string): Promise<AgentToolManifest> {

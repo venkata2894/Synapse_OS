@@ -1,0 +1,23 @@
+[project]
+name = "sentientops-tester"
+version = "0.1.0"
+description = "OpenAI Agents SDK UAT harness for SentientOps"
+requires-python = ">=3.10"
+dependencies = [
+  "openai-agents>=0.13.0",
+  "openai>=2.30.0",
+  "httpx>=0.28.0",
+  "playwright>=1.58.0",
+  "pydantic>=2.11.0",
+  "pydantic-settings>=2.10.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,10 +1,12 @@
 export const TASK_STATUSES = [
+  "intake",
   "backlog",
   "ready",
   "assigned",
   "in_progress",
   "awaiting_handover",
   "under_review",
+  "evaluation",
   "blocked",
   "completed",
   "reopened"
@@ -53,6 +55,8 @@ export interface TaskContract {
   context_refs: string[];
   parent_task_id: string | null;
   blocker_reason: string | null;
+  parent_task_depth?: number;
+  evaluation_queued?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +127,79 @@ export interface TaskLane {
   status: TaskStatus;
   title: string;
   items: TaskContract[];
+}
+
+export interface BoardCard {
+  id: string;
+  title: string;
+  priority: "low" | "medium" | "high" | "critical";
+  status: TaskStatus;
+  assigned_to: string | null;
+  blocker_reason: string | null;
+  dependency_count: number;
+  updated_at: string;
+}
+
+export interface BoardLane {
+  status: TaskStatus | string;
+  label: string;
+  wip_limit: number;
+  count: number;
+  blocked_count: number;
+  cards: BoardCard[];
+}
+
+export interface BoardSnapshot {
+  project_id: string;
+  project_name: string;
+  generated_at: string;
+  lanes: BoardLane[];
+  counters: {
+    total_tasks: number;
+    blocked_tasks: number;
+    in_progress_tasks: number;
+  };
+}
+
+export interface TaskTransitionRecord {
+  id: string;
+  task_id: string;
+  project_id: string;
+  from_status: string;
+  to_status: string;
+  actor_id: string;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface TaskTimelineResponse {
+  task: TaskContract;
+  worklogs: Array<Record<string, unknown>>;
+  handovers: Array<Record<string, unknown>>;
+  transitions: TaskTransitionRecord[];
+  evaluations: EvaluationContract[];
+  memory: Array<Record<string, unknown>>;
+}
+
+export interface TaskTransitionResponse {
+  task: TaskContract;
+  transition: TaskTransitionRecord;
+  evaluation_queued: boolean;
+}
+
+export interface ProcessTemplate {
+  name: string;
+  workflow_stages: string[];
+  transition_matrix: Record<string, string[]>;
+  wip_limits: Record<string, number>;
+}
+
+export interface StreamEventEnvelope {
+  type: string;
+  project_id: string | null;
+  payload: Record<string, unknown>;
+  timestamp: string;
 }
 
 export interface AgentToolDefinition {

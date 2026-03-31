@@ -3,30 +3,13 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import repository
-from app.services.idempotency import IDEMPOTENCY_CACHE
 
 
 def _auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer soa_dev_agent_key"}
 
 
-def _reset_state() -> None:
-    repository.PROJECTS.clear()
-    repository.AGENTS.clear()
-    repository.TASKS.clear()
-    repository.WORKLOGS.clear()
-    repository.HANDOVERS.clear()
-    repository.MEMORY.clear()
-    repository.EVALUATIONS.clear()
-    repository.EVALUATION_QUEUE.clear()
-    repository.EVALUATION_OVERRIDE_AUDIT.clear()
-    repository.TASK_CHILDREN.clear()
-    IDEMPOTENCY_CACHE.clear()
-
-
 def test_agent_manifest_requires_and_accepts_bearer_auth() -> None:
-    _reset_state()
     client = TestClient(app)
 
     unauthorized = client.get("/api/v1/agent-tools/manifest")
@@ -40,7 +23,6 @@ def test_agent_manifest_requires_and_accepts_bearer_auth() -> None:
 
 
 def test_agent_tool_idempotency_reuses_first_response() -> None:
-    _reset_state()
     client = TestClient(app)
     headers = {**_auth_headers(), "Idempotency-Key": "create-project-001"}
     payload = {
@@ -60,3 +42,44 @@ def test_agent_tool_idempotency_reuses_first_response() -> None:
     assert second.json()["idempotency_reused"] is True
     assert first.json()["result"]["id"] == second.json()["response"]["result"]["id"]
 
+
+def test_transition_task_tool_enforces_guardrails() -> None:
+    client = TestClient(app)
+    headers = _auth_headers()
+
+    project = client.post(
+        "/api/v1/agent-tools/create_project",
+        headers=headers,
+        json={
+            "name": "Ops Core",
+            "description": "Tooling test",
+            "objective": "Validate transitions",
+            "owner": "owner-1",
+            "status": "active",
+            "tags": ["v1"],
+        },
+    ).json()["result"]
+
+    task = client.post(
+        "/api/v1/agent-tools/create_task",
+        headers=headers,
+        json={
+            "project_id": project["id"],
+            "title": "Transition test",
+            "description": "Validate matrix",
+            "created_by": "mgr",
+            "priority": "medium",
+            "status": "ready",
+            "dependencies": [],
+            "acceptance_criteria": "Transitions validated",
+            "context_refs": [],
+            "parent_task_depth": 0,
+        },
+    ).json()["result"]
+
+    illegal = client.post(
+        "/api/v1/agent-tools/transition_task",
+        headers=headers,
+        json={"task_id": task["id"], "target_status": "completed"},
+    )
+    assert illegal.status_code == 409

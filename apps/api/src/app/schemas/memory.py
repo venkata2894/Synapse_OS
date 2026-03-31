@@ -21,9 +21,11 @@ class MemorySearchRequest(BaseModel):
 
 class MemoryPromotionRequest(BaseModel):
     memory_id: str
+    project_id: str
+    task_id: str | None = None
+    agent_id: str | None = None
     memory_type: MemoryType
     title: str
     content: str
     source_ref: str | None = None
     approved_by: str
-

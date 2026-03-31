@@ -4,64 +4,32 @@ from fastapi import HTTPException, status
 
 from app.core.auth import Actor
 from app.core.config import settings
-from app.models.enums import TaskStatus
 from app.schemas.agent import AgentCreate
 from app.schemas.evaluation import EvaluationRequest
 from app.schemas.handover import HandoverCreate
 from app.schemas.project import ProjectCreate
-from app.schemas.task import TaskClaimRequest, TaskCreate, TaskStatusUpdate
+from app.schemas.task import TaskClaimRequest, TaskCreate, TaskTransitionRequest
 from app.schemas.worklog import WorklogCreate
-from app.services.evaluation import maybe_build_evaluation_job
-from app.services.policies import PolicyError, ensure_assigned_worker_can_claim, validate_subtask_limits
-from app.services.repository import (
-    AGENTS,
-    EVALUATION_QUEUE,
-    HANDOVERS,
-    MEMORY,
-    PROJECTS,
-    TASKS,
-    TASK_CHILDREN,
-    WORKLOGS,
-    create_agent,
-    create_handover,
-    create_project,
-    create_worklog,
-    create_task,
-)
+from app.services.policies import PolicyError, validate_subtask_limits
+from app.services.repository import Repository
+from app.services.workflow import WorkflowError
 
 
 TOOL_MANIFEST: list[dict[str, str]] = [
     {"name": "create_project", "description": "Create a new project registry record."},
     {"name": "register_agent", "description": "Register a manager/worker/evaluator agent."},
-    {"name": "create_task", "description": "Create a new task with priority and acceptance criteria."},
-    {"name": "assign_task", "description": "Assign a task to a worker and transition to Assigned."},
-    {"name": "claim_task", "description": "Claim a task as the assigned worker agent."},
-    {"name": "update_task_status", "description": "Move task state with blocker handling and eval trigger."},
-    {"name": "submit_completion", "description": "Shortcut to mark task Completed and queue evaluation."},
+    {"name": "create_task", "description": "Create a new task with acceptance criteria."},
+    {"name": "assign_task", "description": "Assign a task to a worker."},
+    {"name": "claim_task", "description": "Claim a task as assigned worker."},
+    {"name": "transition_task", "description": "Transition task using workflow guardrails."},
+    {"name": "update_task_status", "description": "Legacy alias for transition_task."},
+    {"name": "submit_completion", "description": "Legacy shortcut to complete a task."},
     {"name": "append_worklog", "description": "Append structured execution worklog for a task."},
-    {"name": "create_handover", "description": "Create structured handover payload for continuity."},
+    {"name": "create_handover", "description": "Create structured handover payload."},
     {"name": "fetch_project_memory", "description": "Return project-scoped memory records."},
-    {"name": "fetch_task_context", "description": "Return task + worklog + handover + memory context."},
+    {"name": "fetch_task_context", "description": "Return task timeline and memory context."},
     {"name": "request_evaluation", "description": "Queue evaluation job for a task."},
 ]
-
-
-def _require_task(task_id: str) -> dict:
-    task = TASKS.get(task_id)
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
-    return task
-
-
-def _validate_subtask(payload: TaskCreate) -> None:
-    if not payload.parent_task_id:
-        return
-    validate_subtask_limits(
-        parent_depth=payload.parent_task_depth,
-        existing_children=len(TASK_CHILDREN.get(payload.parent_task_id, [])),
-        max_depth=settings.sentientops_max_subtask_depth,
-        max_children=settings.sentientops_max_subtasks_per_parent,
-    )
 
 
 def get_tool_manifest() -> dict:
@@ -73,77 +41,106 @@ def get_tool_manifest() -> dict:
     }
 
 
-def execute_tool(tool_name: str, payload: dict, actor: Actor) -> dict:
+def execute_tool(tool_name: str, payload: dict, actor: Actor, repo: Repository) -> dict:
     try:
         match tool_name:
             case "create_project":
-                return {"result": create_project(ProjectCreate.model_validate(payload))}
+                return {"result": repo.create_project(ProjectCreate.model_validate(payload))}
             case "register_agent":
-                agent = create_agent(AgentCreate.model_validate(payload))
-                return {"result": agent}
+                return {"result": repo.create_agent(AgentCreate.model_validate(payload))}
             case "create_task":
                 task_payload = TaskCreate.model_validate(payload)
-                _validate_subtask(task_payload)
-                return {"result": create_task(task_payload)}
+                if task_payload.parent_task_id:
+                    validate_subtask_limits(
+                        parent_depth=task_payload.parent_task_depth,
+                        existing_children=repo.task_children_count(task_payload.parent_task_id),
+                        max_depth=settings.sentientops_max_subtask_depth,
+                        max_children=settings.sentientops_max_subtasks_per_parent,
+                    )
+                return {"result": repo.create_task(task_payload)}
             case "assign_task":
-                task = _require_task(str(payload["task_id"]))
-                task["assigned_to"] = str(payload["assigned_to"])
-                task["status"] = TaskStatus.ASSIGNED.value
-                return {"result": task}
+                task_id = str(payload.get("task_id", ""))
+                assigned_to = str(payload.get("assigned_to", ""))
+                result = repo.assign_task(task_id, assigned_to, actor_id=actor.actor_id)
+                if not result:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+                return {"result": result}
             case "claim_task":
-                task = _require_task(str(payload["task_id"]))
                 claim_payload = TaskClaimRequest.model_validate(payload)
-                ensure_assigned_worker_can_claim(task.get("assigned_to"), claim_payload.claiming_agent_id)
-                task["status"] = TaskStatus.IN_PROGRESS.value
-                return {"result": task}
+                task_id = str(payload.get("task_id", ""))
+                result = repo.claim_task(task_id, claim_payload.claiming_agent_id)
+                if not result:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+                return {"result": result}
+            case "transition_task":
+                task_id = str(payload.get("task_id", ""))
+                transition_payload = TaskTransitionRequest.model_validate(payload)
+                result = repo.transition_task(
+                    task_id=task_id,
+                    target_status=transition_payload.target_status.value,
+                    actor_id=actor.actor_id,
+                    reason=transition_payload.reason,
+                    blocker_reason=transition_payload.blocker_reason,
+                    metadata=transition_payload.metadata,
+                    assigned_to=transition_payload.assigned_to,
+                )
+                if not result:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+                return {"result": result["task"], "transition": result["transition"], "evaluation_queued": result["evaluation_queued"]}
             case "update_task_status":
-                task = _require_task(str(payload["task_id"]))
-                status_payload = TaskStatusUpdate.model_validate(payload)
-                previous = TaskStatus(task["status"])
-                task["status"] = status_payload.status.value
-                task["blocker_reason"] = status_payload.blocker_reason
-                maybe_job = maybe_build_evaluation_job(task["id"], previous, status_payload.status)
-                if maybe_job:
-                    EVALUATION_QUEUE.append(maybe_job)
-                return {"result": task, "evaluation_queued": maybe_job is not None}
+                task_id = str(payload.get("task_id", ""))
+                target_status = str(payload.get("status", ""))
+                result = repo.transition_task(
+                    task_id=task_id,
+                    target_status=target_status,
+                    actor_id=actor.actor_id,
+                    blocker_reason=payload.get("blocker_reason"),
+                    metadata={},
+                )
+                if not result:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+                return {"result": result["task"], "transition": result["transition"], "evaluation_queued": result["evaluation_queued"]}
             case "submit_completion":
-                task = _require_task(str(payload["task_id"]))
-                previous = TaskStatus(task["status"])
-                task["status"] = TaskStatus.COMPLETED.value
-                maybe_job = maybe_build_evaluation_job(task["id"], previous, TaskStatus.COMPLETED)
-                if maybe_job:
-                    EVALUATION_QUEUE.append(maybe_job)
-                return {"result": task, "evaluation_queued": maybe_job is not None}
+                task_id = str(payload.get("task_id", ""))
+                result = repo.transition_task(
+                    task_id=task_id,
+                    target_status="completed",
+                    actor_id=actor.actor_id,
+                    metadata={},
+                )
+                if not result:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+                return {"result": result["task"], "transition": result["transition"], "evaluation_queued": result["evaluation_queued"]}
             case "append_worklog":
-                return {"result": create_worklog(WorklogCreate.model_validate(payload))}
+                return {"result": repo.create_worklog(WorklogCreate.model_validate(payload))}
             case "create_handover":
-                return {"result": create_handover(HandoverCreate.model_validate(payload))}
+                return {"result": repo.create_handover(HandoverCreate.model_validate(payload))}
             case "fetch_project_memory":
                 project_id = str(payload["project_id"])
-                records = [item for item in MEMORY.values() if item.get("project_id") == project_id]
+                records = repo.fetch_memory(project_id=project_id, top_k=int(payload.get("top_k", 20)))
                 return {"result": {"project_id": project_id, "records": records}}
             case "fetch_task_context":
                 task_id = str(payload["task_id"])
-                task = _require_task(task_id)
-                worklogs = [item for item in WORKLOGS.values() if item.get("task_id") == task_id]
-                handovers = [item for item in HANDOVERS.values() if item.get("task_id") == task_id]
-                memory = [item for item in MEMORY.values() if item.get("task_id") == task_id]
-                return {
-                    "result": {
-                        "task": task,
-                        "worklogs": worklogs,
-                        "handovers": handovers,
-                        "memory": memory,
-                    }
-                }
+                timeline = repo.get_task_timeline(task_id)
+                if not timeline:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+                return {"result": timeline}
             case "request_evaluation":
                 evaluation = EvaluationRequest.model_validate(payload)
-                job = evaluation.model_dump()
-                EVALUATION_QUEUE.append(job)
-                return {"result": {"queued": True, "job": job}}
+                event = repo.enqueue_outbox_event(
+                    aggregate_type="task",
+                    aggregate_id=evaluation.task_id,
+                    project_id=evaluation.project_id,
+                    event_type="evaluation.requested",
+                    payload=evaluation.model_dump(),
+                )
+                repo.db.commit()
+                return {"result": {"queued": True, "job": evaluation.model_dump(), "outbox_event_id": event["id"]}}
             case _:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown tool: {tool_name}")
     except PolicyError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except WorkflowError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(
@@ -152,4 +149,3 @@ def execute_tool(tool_name: str, payload: dict, actor: Actor) -> dict:
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-

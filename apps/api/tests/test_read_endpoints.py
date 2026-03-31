@@ -3,30 +3,13 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import repository
-from app.services.idempotency import IDEMPOTENCY_CACHE
 
 
 def _headers() -> dict[str, str]:
     return {"X-Actor-Id": "owner-1", "X-Actor-Role": "owner"}
 
 
-def _reset_state() -> None:
-    repository.PROJECTS.clear()
-    repository.AGENTS.clear()
-    repository.TASKS.clear()
-    repository.WORKLOGS.clear()
-    repository.HANDOVERS.clear()
-    repository.MEMORY.clear()
-    repository.EVALUATIONS.clear()
-    repository.EVALUATION_QUEUE.clear()
-    repository.EVALUATION_OVERRIDE_AUDIT.clear()
-    repository.TASK_CHILDREN.clear()
-    IDEMPOTENCY_CACHE.clear()
-
-
 def test_read_list_endpoints_and_filters() -> None:
-    _reset_state()
     client = TestClient(app)
     headers = _headers()
 
@@ -102,6 +85,7 @@ def test_read_list_endpoints_and_filters() -> None:
     agents = client.get(f"/api/v1/agents?project_id={project['id']}&role=worker", headers=headers).json()
     evaluations = client.get(f"/api/v1/evaluations?project_id={project['id']}", headers=headers).json()
     summary = client.get("/api/v1/dashboard/summary", headers=headers).json()
+    board = client.get(f"/api/v1/boards/{project['id']}", headers=headers).json()
 
     assert projects["count"] == 1
     assert project_read["id"] == project["id"]
@@ -111,4 +95,5 @@ def test_read_list_endpoints_and_filters() -> None:
     assert evaluations["count"] == 1
     assert summary["totals"]["active_projects"] == 1
     assert summary["totals"]["low_score_alerts"] == 1
-
+    assert board["project_id"] == project["id"]
+    assert any(lane["status"] == "assigned" for lane in board["lanes"])

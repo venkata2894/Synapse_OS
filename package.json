@@ -7,7 +7,12 @@
     "dev": "pnpm -r --parallel dev",
     "dev:web": "pnpm --filter @sentientops/web dev",
     "dev:api": "powershell -ExecutionPolicy Bypass -File ops/scripts/api-dev.ps1",
+    "dev:worker": "powershell -ExecutionPolicy Bypass -File ops/scripts/outbox-worker-dev.ps1",
     "dev:mcp": "powershell -ExecutionPolicy Bypass -File ops/scripts/mcp-dev.ps1",
+    "qa:uat": "powershell -ExecutionPolicy Bypass -File ops/scripts/uat-run.ps1 --scenario full_uat",
+    "qa:uat:blocked": "powershell -ExecutionPolicy Bypass -File ops/scripts/uat-run.ps1 --scenario blocked_recovery",
+    "qa:uat:agent": "powershell -ExecutionPolicy Bypass -File ops/scripts/uat-run.ps1 --scenario agent_surface",
+    "qa:uat:ux": "powershell -ExecutionPolicy Bypass -File ops/scripts/uat-run.ps1 --scenario ux_friction",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test"

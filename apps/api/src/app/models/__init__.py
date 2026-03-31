@@ -3,9 +3,13 @@ from app.models.entities import (
     Evaluation,
     EvaluationOverrideAudit,
     Handover,
+    IdempotencyRecord,
     MemoryEntry,
+    OutboxEvent,
     Project,
+    ProjectProcessConfig,
     Task,
+    TaskTransition,
     Worklog,
 )
 
@@ -14,9 +18,12 @@ __all__ = [
     "Evaluation",
     "EvaluationOverrideAudit",
     "Handover",
+    "IdempotencyRecord",
     "MemoryEntry",
+    "OutboxEvent",
     "Project",
+    "ProjectProcessConfig",
     "Task",
+    "TaskTransition",
     "Worklog",
 ]
-

@@ -2,9 +2,37 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from typing import Any
 
-from app.models.enums import MemoryPromotionStatus, ProjectStatus
+from fastapi import Depends
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import delete, desc, func, select
+from sqlalchemy.orm import Session
+from sqlalchemy.inspection import inspect as sa_inspect
+
+from app.db.session import get_db
+from app.models.entities import (
+    Agent,
+    Evaluation,
+    EvaluationOverrideAudit,
+    Handover,
+    IdempotencyRecord,
+    MemoryEntry,
+    OutboxEvent,
+    Project,
+    ProjectProcessConfig,
+    Task,
+    TaskTransition,
+    Worklog,
+)
+from app.models.enums import (
+    AgentStatus,
+    MemoryPromotionStatus,
+    ProjectStatus,
+    TaskPriority,
+    TaskStatus,
+    WorklogActionType,
+)
 from app.schemas.agent import AgentCreate, AgentStatusUpdate, AgentUpdate
 from app.schemas.evaluation import EvaluationCreate
 from app.schemas.handover import HandoverCreate
@@ -12,753 +40,1005 @@ from app.schemas.memory import MemoryPromotionRequest
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.task import TaskCreate
 from app.schemas.worklog import WorklogCreate
-
-PROJECTS: dict[str, dict] = {}
-AGENTS: dict[str, dict] = {}
-TASKS: dict[str, dict] = {}
-WORKLOGS: dict[str, dict] = {}
-HANDOVERS: dict[str, dict] = {}
-MEMORY: dict[str, dict] = {}
-EVALUATIONS: dict[str, dict] = {}
-EVALUATION_QUEUE: list[dict] = []
-EVALUATION_OVERRIDE_AUDIT: list[dict] = []
-TASK_CHILDREN: dict[str, list[str]] = defaultdict(list)
+from app.services.event_stream import broker
+from app.services.policies import ensure_assigned_worker_can_claim
+from app.services.workflow import (
+    DEFAULT_WIP_LIMITS,
+    WORKFLOW_STAGES,
+    validate_transition_requirements,
+)
 
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def create_project(payload: ProjectCreate) -> dict:
-    project_id = str(uuid4())
-    record = payload.model_dump()
-    record.update({"id": project_id, "manager_agent_id": None, "created_at": now_iso(), "updated_at": now_iso()})
-    PROJECTS[project_id] = record
-    return record
+def model_to_dict(model: Any) -> dict[str, Any]:
+    mapper = sa_inspect(model).mapper
+    return {
+        attr.columns[0].name: getattr(model, attr.key)
+        for attr in mapper.column_attrs
+    }
 
 
-def update_project(project_id: str, payload: ProjectUpdate) -> dict:
-    current = PROJECTS[project_id]
-    updates = payload.model_dump(exclude_none=True)
-    current.update(updates)
-    current["updated_at"] = now_iso()
-    return current
+class Repository:
+    def __init__(self, session: Session):
+        self.db = session
 
+    # -------------------------
+    # Project
+    # -------------------------
+    def list_projects(self, *, limit: int = 100, offset: int = 0) -> dict:
+        items = self.db.scalars(
+            select(Project).order_by(desc(Project.created_at)).offset(offset).limit(limit)
+        ).all()
+        count = self.db.scalar(select(func.count()).select_from(Project)) or 0
+        return {"items": [model_to_dict(item) for item in items], "count": int(count)}
 
-def archive_project(project_id: str) -> dict:
-    current = PROJECTS[project_id]
-    current["status"] = ProjectStatus.ARCHIVED.value
-    current["updated_at"] = now_iso()
-    return current
+    def get_project(self, project_id: str) -> dict | None:
+        project = self.db.get(Project, project_id)
+        return model_to_dict(project) if project else None
 
+    def create_project(self, payload: ProjectCreate) -> dict:
+        project = Project(
+            name=payload.name,
+            description=payload.description,
+            objective=payload.objective,
+            owner=payload.owner,
+            status=payload.status.value,
+            tags=payload.tags,
+            manager_agent_id=None,
+        )
+        self.db.add(project)
+        self.db.commit()
+        self.db.refresh(project)
+        return model_to_dict(project)
 
-def create_agent(payload: AgentCreate) -> dict:
-    agent_id = str(uuid4())
-    record = payload.model_dump()
-    record.update({"id": agent_id, "created_at": now_iso(), "updated_at": now_iso()})
-    AGENTS[agent_id] = record
-    return record
+    def update_project(self, project_id: str, payload: ProjectUpdate) -> dict | None:
+        project = self.db.get(Project, project_id)
+        if not project:
+            return None
+        for key, value in payload.model_dump(exclude_none=True).items():
+            setattr(project, key, value.value if hasattr(value, "value") else value)
+        self.db.commit()
+        self.db.refresh(project)
+        return model_to_dict(project)
 
+    def archive_project(self, project_id: str) -> dict | None:
+        project = self.db.get(Project, project_id)
+        if not project:
+            return None
+        project.status = ProjectStatus.ARCHIVED.value
+        self.db.commit()
+        self.db.refresh(project)
+        return model_to_dict(project)
 
-def update_agent(agent_id: str, payload: AgentUpdate) -> dict:
-    current = AGENTS[agent_id]
-    current.update(payload.model_dump(exclude_none=True))
-    current["updated_at"] = now_iso()
-    return current
+    def assign_manager(self, project_id: str, manager_agent_id: str) -> dict | None:
+        project = self.db.get(Project, project_id)
+        if not project:
+            return None
+        project.manager_agent_id = manager_agent_id
+        self.db.commit()
+        self.db.refresh(project)
+        return model_to_dict(project)
 
+    def bootstrap_default_process(self, project_id: str) -> dict:
+        from app.services.workflow import default_template
 
-def update_agent_status(agent_id: str, payload: AgentStatusUpdate) -> dict:
-    current = AGENTS[agent_id]
-    current["status"] = payload.status.value
-    current["updated_at"] = now_iso()
-    return current
+        existing = self.db.scalar(
+            select(ProjectProcessConfig).where(ProjectProcessConfig.project_id == project_id)
+        )
+        if existing:
+            return model_to_dict(existing)
 
+        template = default_template()
+        config = ProjectProcessConfig(
+            project_id=project_id,
+            template_name=template.name,
+            workflow_stages=template.workflow_stages,
+            transition_matrix=template.transition_matrix,
+            wip_limits=template.wip_limits,
+        )
+        self.db.add(config)
+        self.db.commit()
+        self.db.refresh(config)
+        return model_to_dict(config)
 
-def create_task(payload: TaskCreate) -> dict:
-    task_id = str(uuid4())
-    record = payload.model_dump()
-    record.update({"id": task_id, "created_at": now_iso(), "updated_at": now_iso(), "blocker_reason": None})
-    record["priority"] = payload.priority.value
-    record["status"] = payload.status.value
-    TASKS[task_id] = record
-    if payload.parent_task_id:
-        TASK_CHILDREN[payload.parent_task_id].append(task_id)
-    return record
+    def get_default_process_template(self) -> dict:
+        from app.services.workflow import default_template
 
-
-def create_worklog(payload: WorklogCreate) -> dict:
-    worklog_id = str(uuid4())
-    record = payload.model_dump()
-    record["id"] = worklog_id
-    record["action_type"] = payload.action_type.value
-    record["timestamp"] = now_iso()
-    WORKLOGS[worklog_id] = record
-    return record
-
-
-def create_handover(payload: HandoverCreate) -> dict:
-    handover_id = str(uuid4())
-    record = payload.model_dump()
-    record.update({"id": handover_id, "timestamp": now_iso()})
-    HANDOVERS[handover_id] = record
-    return record
-
-
-def create_evaluation(payload: EvaluationCreate) -> dict:
-    evaluation_id = str(uuid4())
-    record = payload.model_dump()
-    record.update({"id": evaluation_id, "timestamp": now_iso()})
-    EVALUATIONS[evaluation_id] = record
-    return record
-
-
-def promote_memory(payload: MemoryPromotionRequest) -> dict:
-    now = now_iso()
-    record = MEMORY.get(payload.memory_id, {})
-    record.update(
-        {
-            "id": payload.memory_id,
-            "memory_type": payload.memory_type.value,
-            "title": payload.title,
-            "content": payload.content,
-            "source_ref": payload.source_ref,
-            "approved_by": payload.approved_by,
-            "promotion_status": MemoryPromotionStatus.PROMOTED.value,
-            "is_curated": True,
-            "updated_at": now,
+        template = default_template()
+        return {
+            "name": template.name,
+            "workflow_stages": template.workflow_stages,
+            "transition_matrix": template.transition_matrix,
+            "wip_limits": template.wip_limits,
         }
-    )
-    if "created_at" not in record:
-        record["created_at"] = now
-    MEMORY[payload.memory_id] = record
-    return record
 
+    # -------------------------
+    # Agent
+    # -------------------------
+    def list_agents(
+        self,
+        *,
+        project_id: str | None = None,
+        role: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> dict:
+        query = select(Agent)
+        if project_id:
+            query = query.where(Agent.project_id == project_id)
+        if role:
+            query = query.where(Agent.role == role)
+        items = self.db.scalars(query.order_by(desc(Agent.created_at)).offset(offset).limit(limit)).all()
+        count = self.db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        return {"items": [model_to_dict(item) for item in items], "count": int(count)}
 
-def reset_in_memory_state() -> None:
-    PROJECTS.clear()
-    AGENTS.clear()
-    TASKS.clear()
-    WORKLOGS.clear()
-    HANDOVERS.clear()
-    MEMORY.clear()
-    EVALUATIONS.clear()
-    EVALUATION_QUEUE.clear()
-    EVALUATION_OVERRIDE_AUDIT.clear()
-    TASK_CHILDREN.clear()
+    def get_agent(self, agent_id: str) -> dict | None:
+        agent = self.db.get(Agent, agent_id)
+        return model_to_dict(agent) if agent else None
 
+    def create_agent(self, payload: AgentCreate) -> dict:
+        agent = Agent(
+            name=payload.name,
+            role=payload.role.value,
+            type=payload.type.value,
+            project_id=payload.project_id,
+            capabilities=payload.capabilities,
+            status=payload.status.value,
+        )
+        self.db.add(agent)
+        self.db.commit()
+        self.db.refresh(agent)
+        return model_to_dict(agent)
 
-def seed_demo_data(*, force: bool = False) -> bool:
-    if not force and any((PROJECTS, AGENTS, TASKS, WORKLOGS, HANDOVERS, MEMORY, EVALUATIONS)):
-        return False
+    def update_agent(self, agent_id: str, payload: AgentUpdate) -> dict | None:
+        agent = self.db.get(Agent, agent_id)
+        if not agent:
+            return None
+        for key, value in payload.model_dump(exclude_none=True).items():
+            setattr(agent, key, value)
+        self.db.commit()
+        self.db.refresh(agent)
+        return model_to_dict(agent)
 
-    reset_in_memory_state()
+    def update_agent_status(self, agent_id: str, payload: AgentStatusUpdate) -> dict | None:
+        agent = self.db.get(Agent, agent_id)
+        if not agent:
+            return None
+        agent.status = payload.status.value
+        self.db.commit()
+        self.db.refresh(agent)
+        return model_to_dict(agent)
 
-    seeded_at = datetime.now(timezone.utc)
+    # -------------------------
+    # Task
+    # -------------------------
+    def list_tasks(
+        self,
+        *,
+        project_id: str | None = None,
+        status_filter: str | None = None,
+        assigned_to: str | None = None,
+        limit: int = 300,
+        offset: int = 0,
+    ) -> dict:
+        query = select(Task)
+        if project_id:
+            query = query.where(Task.project_id == project_id)
+        if status_filter:
+            query = query.where(Task.status == status_filter)
+        if assigned_to:
+            query = query.where(Task.assigned_to == assigned_to)
+        items = self.db.scalars(query.order_by(desc(Task.updated_at)).offset(offset).limit(limit)).all()
+        count = self.db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        return {"items": [model_to_dict(item) for item in items], "count": int(count)}
 
-    def ts(minutes_ago: int) -> str:
-        return (seeded_at - timedelta(minutes=minutes_ago)).isoformat()
+    def get_task(self, task_id: str) -> dict | None:
+        task = self.db.get(Task, task_id)
+        return model_to_dict(task) if task else None
 
-    project_core_id = "project-synapse-core"
-    project_memory_id = "project-memory-pipeline"
+    def task_children_count(self, parent_task_id: str) -> int:
+        count = self.db.scalar(select(func.count()).where(Task.parent_task_id == parent_task_id)) or 0
+        return int(count)
 
-    manager_core_id = "agent-manager-orion"
-    manager_memory_id = "agent-manager-atlas"
+    def create_task(self, payload: TaskCreate) -> dict:
+        task = Task(
+            project_id=payload.project_id,
+            parent_task_id=payload.parent_task_id,
+            title=payload.title,
+            description=payload.description,
+            created_by=payload.created_by,
+            assigned_to=payload.assigned_to,
+            priority=payload.priority.value,
+            status=payload.status.value,
+            dependencies=payload.dependencies,
+            acceptance_criteria=payload.acceptance_criteria,
+            context_refs=payload.context_refs,
+            blocker_reason=None,
+            parent_task_depth=payload.parent_task_depth,
+            evaluation_queued=False,
+        )
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return model_to_dict(task)
 
-    worker_lex_id = "agent-worker-lex"
-    worker_nova_id = "agent-worker-nova"
-    worker_quill_id = "agent-worker-quill"
+    def assign_task(self, task_id: str, assigned_to: str, *, actor_id: str) -> dict | None:
+        task = self.db.get(Task, task_id)
+        if not task:
+            return None
+        from_status = task.status
+        task.assigned_to = assigned_to
+        task.status = TaskStatus.ASSIGNED.value
+        self._record_transition(
+            task=task,
+            from_status=from_status,
+            to_status=TaskStatus.ASSIGNED.value,
+            actor_id=actor_id,
+            reason="assigned",
+            metadata={"assigned_to": assigned_to},
+        )
+        self.db.commit()
+        self.db.refresh(task)
+        return model_to_dict(task)
 
-    evaluator_iris_id = "agent-evaluator-iris"
-    evaluator_kai_id = "agent-evaluator-kai"
+    def claim_task(self, task_id: str, claiming_agent_id: str) -> dict | None:
+        task = self.db.get(Task, task_id)
+        if not task:
+            return None
+        ensure_assigned_worker_can_claim(task.assigned_to, claiming_agent_id)
+        from_status = task.status
+        task.status = TaskStatus.IN_PROGRESS.value
+        task.blocker_reason = None
+        self._record_transition(
+            task=task,
+            from_status=from_status,
+            to_status=TaskStatus.IN_PROGRESS.value,
+            actor_id=claiming_agent_id,
+            reason="claim",
+            metadata={},
+        )
+        self.db.commit()
+        self.db.refresh(task)
+        return model_to_dict(task)
 
-    PROJECTS.update(
-        {
-            project_core_id: {
-                "id": project_core_id,
-                "name": "Synapse OS Delivery",
-                "description": "Agent-first project orchestration workspace for V1 delivery.",
-                "objective": "Ship Kanban operations, memory continuity, and evaluation loops.",
-                "owner": "owner-1",
-                "status": ProjectStatus.ACTIVE.value,
-                "tags": ["v1", "frontend", "agent-ops"],
-                "manager_agent_id": manager_core_id,
-                "created_at": ts(480),
-                "updated_at": ts(14),
-            },
-            project_memory_id: {
-                "id": project_memory_id,
-                "name": "Memory Reliability Track",
-                "description": "Curated memory promotion, retrieval quality, and auditability.",
-                "objective": "Improve context recall and reduce repeated agent mistakes.",
-                "owner": "owner-1",
-                "status": ProjectStatus.ACTIVE.value,
-                "tags": ["memory", "evaluation", "qdrant"],
-                "manager_agent_id": manager_memory_id,
-                "created_at": ts(360),
-                "updated_at": ts(9),
-            },
+    def transition_task(
+        self,
+        *,
+        task_id: str,
+        target_status: str,
+        actor_id: str,
+        reason: str | None = None,
+        blocker_reason: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        assigned_to: str | None = None,
+    ) -> dict | None:
+        task = self.db.get(Task, task_id)
+        if not task:
+            return None
+
+        from_status = task.status
+        to_status = target_status
+        validate_transition_requirements(from_status=from_status, to_status=to_status, blocker_reason=blocker_reason)
+
+        if to_status == TaskStatus.ASSIGNED.value and assigned_to:
+            task.assigned_to = assigned_to
+        if to_status == TaskStatus.IN_PROGRESS.value:
+            ensure_assigned_worker_can_claim(task.assigned_to, actor_id)
+
+        task.status = to_status
+        task.blocker_reason = blocker_reason if to_status == TaskStatus.BLOCKED.value else None
+        task.evaluation_queued = to_status in {TaskStatus.EVALUATION.value, TaskStatus.COMPLETED.value}
+
+        transition = self._record_transition(
+            task=task,
+            from_status=from_status,
+            to_status=to_status,
+            actor_id=actor_id,
+            reason=reason,
+            metadata=metadata or {},
+        )
+
+        evaluation_queued = False
+        if to_status in {TaskStatus.EVALUATION.value, TaskStatus.COMPLETED.value}:
+            evaluation_queued = True
+            self.enqueue_outbox_event(
+                aggregate_type="task",
+                aggregate_id=task.id,
+                project_id=task.project_id,
+                event_type="evaluation.requested",
+                payload={
+                    "task_id": task.id,
+                    "project_id": task.project_id,
+                    "triggered_by": actor_id,
+                    "target_status": to_status,
+                },
+            )
+
+        if to_status in {TaskStatus.AWAITING_HANDOVER.value, TaskStatus.COMPLETED.value}:
+            self.enqueue_outbox_event(
+                aggregate_type="task",
+                aggregate_id=task.id,
+                project_id=task.project_id,
+                event_type="memory.suggestion.requested",
+                payload={"task_id": task.id, "project_id": task.project_id, "status": to_status},
+            )
+
+        self.db.commit()
+        self.db.refresh(task)
+
+        return {
+            "task": model_to_dict(task),
+            "transition": model_to_dict(transition),
+            "evaluation_queued": evaluation_queued,
         }
-    )
 
-    AGENTS.update(
-        {
-            "agent-owner-1": {
-                "id": "agent-owner-1",
-                "name": "Owner Control",
-                "role": "owner",
-                "type": "platform_side",
-                "project_id": None,
-                "capabilities": ["governance", "score_override", "release_signoff"],
-                "status": "active",
-                "created_at": ts(500),
-                "updated_at": ts(20),
-            },
-            manager_core_id: {
-                "id": manager_core_id,
-                "name": "Manager Orion",
-                "role": "manager",
-                "type": "project_side",
-                "project_id": project_core_id,
-                "capabilities": ["planning", "task_breakdown", "handover_gate"],
-                "status": "active",
-                "created_at": ts(420),
-                "updated_at": ts(15),
-            },
-            manager_memory_id: {
-                "id": manager_memory_id,
-                "name": "Manager Atlas",
-                "role": "manager",
-                "type": "project_side",
-                "project_id": project_memory_id,
-                "capabilities": ["memory_review", "policy_enforcement"],
-                "status": "active",
-                "created_at": ts(410),
-                "updated_at": ts(12),
-            },
-            worker_lex_id: {
-                "id": worker_lex_id,
-                "name": "Worker Lex",
-                "role": "worker",
-                "type": "project_side",
-                "project_id": project_core_id,
-                "capabilities": ["frontend", "integration", "tooling"],
-                "status": "active",
-                "created_at": ts(390),
-                "updated_at": ts(5),
-            },
-            worker_nova_id: {
-                "id": worker_nova_id,
-                "name": "Worker Nova",
-                "role": "worker",
-                "type": "project_side",
-                "project_id": project_core_id,
-                "capabilities": ["backend", "contracts", "tests"],
-                "status": "active",
-                "created_at": ts(388),
-                "updated_at": ts(4),
-            },
-            worker_quill_id: {
-                "id": worker_quill_id,
-                "name": "Worker Quill",
-                "role": "worker",
-                "type": "project_side",
-                "project_id": project_memory_id,
-                "capabilities": ["vector-search", "context-ranking"],
-                "status": "active",
-                "created_at": ts(376),
-                "updated_at": ts(6),
-            },
-            evaluator_iris_id: {
-                "id": evaluator_iris_id,
-                "name": "Evaluator Iris",
-                "role": "evaluator",
-                "type": "platform_side",
-                "project_id": project_core_id,
-                "capabilities": ["quality-scoring", "handover-review"],
-                "status": "active",
-                "created_at": ts(350),
-                "updated_at": ts(7),
-            },
-            evaluator_kai_id: {
-                "id": evaluator_kai_id,
-                "name": "Evaluator Kai",
-                "role": "evaluator",
-                "type": "platform_side",
-                "project_id": project_memory_id,
-                "capabilities": ["memory-audit", "scorecards"],
-                "status": "active",
-                "created_at": ts(345),
-                "updated_at": ts(10),
-            },
+    def update_task_dependencies(self, task_id: str, dependencies: list[str]) -> dict | None:
+        task = self.db.get(Task, task_id)
+        if not task:
+            return None
+        task.dependencies = dependencies
+        self.db.commit()
+        self.db.refresh(task)
+        return model_to_dict(task)
+
+    def _record_transition(
+        self,
+        *,
+        task: Task,
+        from_status: str,
+        to_status: str,
+        actor_id: str,
+        reason: str | None,
+        metadata: dict[str, Any],
+    ) -> TaskTransition:
+        transition = TaskTransition(
+            task_id=task.id,
+            project_id=task.project_id,
+            from_status=from_status,
+            to_status=to_status,
+            actor_id=actor_id,
+            reason=reason,
+            transition_metadata=metadata,
+        )
+        self.db.add(transition)
+        return transition
+
+    # -------------------------
+    # Worklogs / handovers / memory / eval
+    # -------------------------
+    def create_worklog(self, payload: WorklogCreate) -> dict:
+        item = Worklog(
+            task_id=payload.task_id,
+            agent_id=payload.agent_id,
+            action_type=payload.action_type.value,
+            summary=payload.summary,
+            detailed_log=payload.detailed_log,
+            artifacts=payload.artifacts,
+            confidence=payload.confidence,
+        )
+        self.db.add(item)
+        self.db.commit()
+        self.db.refresh(item)
+        return model_to_dict(item)
+
+    def create_handover(self, payload: HandoverCreate) -> dict:
+        item = Handover(
+            task_id=payload.task_id,
+            project_id=payload.project_id,
+            from_agent_id=payload.from_agent_id,
+            to_agent_id=payload.to_agent_id,
+            completed_work=payload.completed_work,
+            pending_work=payload.pending_work,
+            blockers=payload.blockers,
+            risks=payload.risks,
+            next_steps=payload.next_steps,
+            confidence=payload.confidence,
+        )
+        self.db.add(item)
+        self.db.commit()
+        self.db.refresh(item)
+        return model_to_dict(item)
+
+    def create_evaluation(self, payload: EvaluationCreate) -> dict:
+        item = Evaluation(
+            project_id=payload.project_id,
+            task_id=payload.task_id,
+            agent_id=payload.agent_id,
+            evaluator_agent_id=payload.evaluator_agent_id,
+            score_completion=payload.score_completion,
+            score_quality=payload.score_quality,
+            score_reliability=payload.score_reliability,
+            score_handover=payload.score_handover,
+            score_context=payload.score_context,
+            score_clarity=payload.score_clarity,
+            score_improvement=payload.score_improvement,
+            missed_points=payload.missed_points,
+            strengths=payload.strengths,
+            weaknesses=payload.weaknesses,
+            recommendations=payload.recommendations,
+        )
+        self.db.add(item)
+        self.db.commit()
+        self.db.refresh(item)
+        return model_to_dict(item)
+
+    def add_evaluation_override(
+        self,
+        *,
+        evaluation_id: str,
+        owner_id: str,
+        reason: str,
+        original_scores: dict[str, int],
+        override_scores: dict[str, int],
+    ) -> dict | None:
+        evaluation = self.db.get(Evaluation, evaluation_id)
+        if not evaluation:
+            return None
+
+        for field, value in override_scores.items():
+            setattr(evaluation, field, value)
+        evaluation.override_reason = reason
+
+        audit = EvaluationOverrideAudit(
+            evaluation_id=evaluation_id,
+            owner_id=owner_id,
+            reason=reason,
+            original_scores=original_scores,
+            override_scores=override_scores,
+        )
+        self.db.add(audit)
+        self.db.commit()
+        self.db.refresh(evaluation)
+        self.db.refresh(audit)
+        return {
+            "evaluation": model_to_dict(evaluation),
+            "audit": model_to_dict(audit),
         }
-    )
 
-    TASKS.update(
-        {
-            "task-backlog-api": {
-                "id": "task-backlog-api",
-                "project_id": project_core_id,
-                "title": "Expand API read coverage",
-                "description": "Add read endpoints for timeline and memory snapshots.",
-                "created_by": manager_core_id,
-                "assigned_to": None,
-                "priority": "high",
-                "status": "backlog",
-                "dependencies": [],
-                "acceptance_criteria": "Read models documented and typed in contracts.",
-                "context_refs": ["docs/architecture/backend-read-models.md"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(300),
-                "updated_at": ts(280),
-                "evaluation_queued": False,
-            },
-            "task-ready-auth": {
-                "id": "task-ready-auth",
-                "project_id": project_core_id,
-                "title": "Tighten Clerk role mapping",
-                "description": "Map Clerk session claims to actor roles with strict checks.",
-                "created_by": manager_core_id,
-                "assigned_to": None,
-                "priority": "medium",
-                "status": "ready",
-                "dependencies": [],
-                "acceptance_criteria": "Role mismatch requests are rejected with clear errors.",
-                "context_refs": ["PRIMER.md", "apps/api/src/app/core/auth.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(280),
-                "updated_at": ts(220),
-                "evaluation_queued": False,
-            },
-            "task-assigned-kanban": {
-                "id": "task-assigned-kanban",
-                "project_id": project_core_id,
-                "title": "Polish Kanban lane interactions",
-                "description": "Improve drag and lane transitions with clearer action buttons.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_lex_id,
-                "priority": "high",
-                "status": "assigned",
-                "dependencies": ["task-ready-auth"],
-                "acceptance_criteria": "Assigned tasks can be claimed only by assigned worker.",
-                "context_refs": ["apps/web/src/app/tasks/page.tsx"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(260),
-                "updated_at": ts(40),
-                "evaluation_queued": False,
-            },
-            "task-progress-runtime": {
-                "id": "task-progress-runtime",
-                "project_id": project_core_id,
-                "title": "Implement tool runtime tracing",
-                "description": "Capture request and response metadata for each tool call.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_nova_id,
-                "priority": "critical",
-                "status": "in_progress",
-                "dependencies": ["task-assigned-kanban"],
-                "acceptance_criteria": "History surfaces payload, result, and actor identity.",
-                "context_refs": ["apps/api/src/app/services/agent_toolkit.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(250),
-                "updated_at": ts(12),
-                "evaluation_queued": False,
-            },
-            "task-handover-ingestion": {
-                "id": "task-handover-ingestion",
-                "project_id": project_core_id,
-                "title": "Prepare handover packet for ingestion track",
-                "description": "Document completed work and unresolved risks for evaluator review.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_lex_id,
-                "priority": "medium",
-                "status": "awaiting_handover",
-                "dependencies": ["task-progress-runtime"],
-                "acceptance_criteria": "Handover includes blockers, risks, and next steps.",
-                "context_refs": ["apps/api/src/app/schemas/handover.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(240),
-                "updated_at": ts(18),
-                "evaluation_queued": False,
-            },
-            "task-review-guardrails": {
-                "id": "task-review-guardrails",
-                "project_id": project_core_id,
-                "title": "Review guardrail policy tests",
-                "description": "Validate manager and claim constraints in policy suite.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_nova_id,
-                "priority": "high",
-                "status": "under_review",
-                "dependencies": [],
-                "acceptance_criteria": "Policy test suite passes with branch coverage notes.",
-                "context_refs": ["apps/api/tests/test_policies.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(230),
-                "updated_at": ts(16),
-                "evaluation_queued": False,
-            },
-            "task-blocked-mcp": {
-                "id": "task-blocked-mcp",
-                "project_id": project_core_id,
-                "title": "Enable remote MCP broker handshake",
-                "description": "Finalize broker authentication and callback route validation.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_lex_id,
-                "priority": "critical",
-                "status": "blocked",
-                "dependencies": ["task-ready-auth"],
-                "acceptance_criteria": "Broker handshake passes in local and staging.",
-                "context_refs": ["apps/api/src/app/mcp/server.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": "Waiting for provider OAuth scope approval.",
-                "created_at": ts(220),
-                "updated_at": ts(11),
-                "evaluation_queued": False,
-            },
-            "task-completed-dashboard": {
-                "id": "task-completed-dashboard",
-                "project_id": project_core_id,
-                "title": "Ship dashboard summary widgets",
-                "description": "Expose blocked and low-score alerts in dashboard cards.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_nova_id,
-                "priority": "medium",
-                "status": "completed",
-                "dependencies": ["task-progress-runtime"],
-                "acceptance_criteria": "Cards refresh every polling cycle and display alerts.",
-                "context_refs": ["apps/web/src/app/page.tsx"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(210),
-                "updated_at": ts(8),
-                "evaluation_queued": True,
-            },
-            "task-reopened-alerts": {
-                "id": "task-reopened-alerts",
-                "project_id": project_core_id,
-                "title": "Refine low-score alert threshold",
-                "description": "Tune alert rules to reduce false positives for short tasks.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_lex_id,
-                "priority": "medium",
-                "status": "reopened",
-                "dependencies": ["task-completed-dashboard"],
-                "acceptance_criteria": "Threshold changes documented and verified.",
-                "context_refs": ["apps/api/src/app/api/v1/endpoints/dashboard.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(205),
-                "updated_at": ts(6),
-                "evaluation_queued": False,
-            },
-            "task-parent-ux": {
-                "id": "task-parent-ux",
-                "project_id": project_core_id,
-                "title": "Frontend elegance pass",
-                "description": "Establish a light visual language with responsive layouts.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_nova_id,
-                "priority": "high",
-                "status": "in_progress",
-                "dependencies": [],
-                "acceptance_criteria": "No horizontal page overflow at standard breakpoints.",
-                "context_refs": ["apps/web/src/app/globals.css", "apps/web/src/components/app-shell.tsx"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(200),
-                "updated_at": ts(3),
-                "evaluation_queued": False,
-            },
-            "task-subtask-spacing": {
-                "id": "task-subtask-spacing",
-                "project_id": project_core_id,
-                "title": "Align card spacing system",
-                "description": "Normalize card paddings and table spacing across pages.",
-                "created_by": manager_core_id,
-                "assigned_to": worker_lex_id,
-                "priority": "medium",
-                "status": "assigned",
-                "dependencies": ["task-parent-ux"],
-                "acceptance_criteria": "Metric cards and panels share spacing scale.",
-                "context_refs": ["apps/web/src/components/metric-card.tsx"],
-                "parent_task_id": "task-parent-ux",
-                "parent_task_depth": 1,
-                "blocker_reason": None,
-                "created_at": ts(190),
-                "updated_at": ts(2),
-                "evaluation_queued": False,
-            },
-            "task-memory-index": {
-                "id": "task-memory-index",
-                "project_id": project_memory_id,
-                "title": "Tune curated memory indexing",
-                "description": "Improve retrieval ranking for cross-task context queries.",
-                "created_by": manager_memory_id,
-                "assigned_to": worker_quill_id,
-                "priority": "high",
-                "status": "in_progress",
-                "dependencies": [],
-                "acceptance_criteria": "Top-5 retrieval quality improves in manual checks.",
-                "context_refs": ["apps/api/src/app/vector/qdrant_store.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(170),
-                "updated_at": ts(13),
-                "evaluation_queued": False,
-            },
-            "task-memory-curation": {
-                "id": "task-memory-curation",
-                "project_id": project_memory_id,
-                "title": "Define hybrid promotion workflow",
-                "description": "System suggestion plus manager confirmation with audit trails.",
-                "created_by": manager_memory_id,
-                "assigned_to": worker_quill_id,
-                "priority": "medium",
-                "status": "completed",
-                "dependencies": ["task-memory-index"],
-                "acceptance_criteria": "Promotion decisions are stored with approver identity.",
-                "context_refs": ["apps/api/src/app/services/memory.py"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": None,
-                "created_at": ts(160),
-                "updated_at": ts(25),
-                "evaluation_queued": True,
-            },
-            "task-memory-blocker": {
-                "id": "task-memory-blocker",
-                "project_id": project_memory_id,
-                "title": "Stabilize vector schema migration",
-                "description": "Finalize migration script for embedding payload compatibility.",
-                "created_by": manager_memory_id,
-                "assigned_to": worker_quill_id,
-                "priority": "high",
-                "status": "blocked",
-                "dependencies": ["task-memory-index"],
-                "acceptance_criteria": "Migration runs cleanly in CI and local infra.",
-                "context_refs": ["ops/docker-compose.yml"],
-                "parent_task_id": None,
-                "parent_task_depth": 0,
-                "blocker_reason": "Qdrant collection migration spec still pending approval.",
-                "created_at": ts(150),
-                "updated_at": ts(17),
-                "evaluation_queued": False,
-            },
-        }
-    )
+    def list_evaluations(
+        self,
+        *,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> dict:
+        query = select(Evaluation)
+        if project_id:
+            query = query.where(Evaluation.project_id == project_id)
+        if agent_id:
+            query = query.where(Evaluation.agent_id == agent_id)
+        items = self.db.scalars(query.order_by(desc(Evaluation.timestamp)).offset(offset).limit(limit)).all()
+        count = self.db.scalar(select(func.count()).select_from(query.subquery())) or 0
 
-    TASK_CHILDREN["task-parent-ux"].append("task-subtask-spacing")
+        evaluation_ids = [item.id for item in items]
+        audits = (
+            self.db.scalars(
+                select(EvaluationOverrideAudit).where(EvaluationOverrideAudit.evaluation_id.in_(evaluation_ids))
+            ).all()
+            if evaluation_ids
+            else []
+        )
+        by_eval: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for audit in audits:
+            by_eval[audit.evaluation_id].append(model_to_dict(audit))
 
-    WORKLOGS.update(
-        {
-            "worklog-runtime-1": {
-                "id": "worklog-runtime-1",
-                "task_id": "task-progress-runtime",
-                "agent_id": worker_nova_id,
-                "action_type": "progress",
-                "summary": "Added structured logging envelope for tool calls.",
-                "detailed_log": "Request payload, actor metadata, and result code now captured for each tool execution.",
-                "artifacts": ["apps/api/src/app/services/agent_toolkit.py"],
-                "confidence": 0.82,
-                "timestamp": ts(10),
-            },
-            "worklog-ux-1": {
-                "id": "worklog-ux-1",
-                "task_id": "task-parent-ux",
-                "agent_id": worker_lex_id,
-                "action_type": "decision",
-                "summary": "Switched to light palette with card-based composition.",
-                "detailed_log": "Adjusted panel gradients, spacing, and responsive lane layout.",
-                "artifacts": ["apps/web/src/app/globals.css", "apps/web/src/components/app-shell.tsx"],
-                "confidence": 0.87,
-                "timestamp": ts(5),
-            },
-            "worklog-memory-1": {
-                "id": "worklog-memory-1",
-                "task_id": "task-memory-index",
-                "agent_id": worker_quill_id,
-                "action_type": "progress",
-                "summary": "Improved retrieval filtering by project and task context.",
-                "detailed_log": "Memory search endpoint now prioritizes project scope and contextual matching.",
-                "artifacts": ["apps/api/src/app/api/v1/endpoints/memory.py"],
-                "confidence": 0.78,
-                "timestamp": ts(21),
-            },
-        }
-    )
+        enriched: list[dict[str, Any]] = []
+        for item in items:
+            row = model_to_dict(item)
+            row["override_audit_entries"] = by_eval.get(item.id, [])
+            enriched.append(row)
+        return {"items": enriched, "count": int(count)}
 
-    HANDOVERS.update(
-        {
-            "handover-ingestion-1": {
-                "id": "handover-ingestion-1",
-                "task_id": "task-handover-ingestion",
-                "project_id": project_core_id,
-                "from_agent_id": worker_lex_id,
-                "to_agent_id": evaluator_iris_id,
-                "completed_work": "Context bundle and acceptance checklist drafted.",
-                "pending_work": "Need evaluator score and owner acknowledgment.",
-                "blockers": "None",
-                "risks": "Checklist language may be ambiguous for non-technical reviewers.",
-                "next_steps": "Evaluator validates clarity and scoring readiness.",
-                "confidence": 0.84,
-                "timestamp": ts(19),
-            },
-            "handover-memory-1": {
-                "id": "handover-memory-1",
-                "task_id": "task-memory-curation",
-                "project_id": project_memory_id,
-                "from_agent_id": worker_quill_id,
-                "to_agent_id": evaluator_kai_id,
-                "completed_work": "Hybrid promotion flow implemented and documented.",
-                "pending_work": "Run larger retrieval relevance checks against seeded corpus.",
-                "blockers": "Awaiting final benchmark dataset.",
-                "risks": "False positives if query terms are too generic.",
-                "next_steps": "Evaluator runs scoring matrix and submits findings.",
-                "confidence": 0.76,
-                "timestamp": ts(26),
+    def fetch_memory(self, *, project_id: str, task_id: str | None = None, top_k: int = 10) -> list[dict]:
+        query = select(MemoryEntry).where(MemoryEntry.project_id == project_id)
+        if task_id:
+            query = query.where(MemoryEntry.task_id == task_id)
+        items = self.db.scalars(query.order_by(desc(MemoryEntry.created_at)).limit(top_k)).all()
+        return [model_to_dict(item) for item in items]
+
+    def search_memory(self, *, project_id: str, query_text: str, task_id: str | None = None, top_k: int = 10) -> list[dict]:
+        query = select(MemoryEntry).where(MemoryEntry.project_id == project_id)
+        if task_id:
+            query = query.where(MemoryEntry.task_id == task_id)
+        query = query.where(MemoryEntry.content.ilike(f"%{query_text}%"))
+        items = self.db.scalars(query.order_by(desc(MemoryEntry.created_at)).limit(top_k)).all()
+        return [model_to_dict(item) for item in items]
+
+    def promote_memory(self, payload: MemoryPromotionRequest) -> dict:
+        item = self.db.get(MemoryEntry, payload.memory_id)
+        if not item:
+            item = MemoryEntry(
+                id=payload.memory_id,
+                project_id=payload.project_id,
+                task_id=payload.task_id,
+                agent_id=payload.agent_id,
+                memory_type=payload.memory_type.value,
+                title=payload.title,
+                content=payload.content,
+                source_ref=payload.source_ref,
+                importance=4,
+                is_curated=True,
+                promotion_status=MemoryPromotionStatus.PROMOTED.value,
+            )
+            self.db.add(item)
+        else:
+            item.project_id = payload.project_id
+            item.task_id = payload.task_id
+            item.agent_id = payload.agent_id
+            item.memory_type = payload.memory_type.value
+            item.title = payload.title
+            item.content = payload.content
+            item.source_ref = payload.source_ref
+            item.is_curated = True
+            item.promotion_status = MemoryPromotionStatus.PROMOTED.value
+        self.db.commit()
+        self.db.refresh(item)
+        return model_to_dict(item)
+
+    # -------------------------
+    # Board / timeline / dashboard
+    # -------------------------
+    def get_board(self, project_id: str) -> dict:
+        project = self.db.get(Project, project_id)
+        if not project:
+            return {"project_id": project_id, "lanes": [], "counters": {}}
+
+        tasks = self.db.scalars(select(Task).where(Task.project_id == project_id)).all()
+        lane_statuses = WORKFLOW_STAGES + [TaskStatus.BLOCKED.value, TaskStatus.REOPENED.value]
+        lanes = {status: [] for status in lane_statuses}
+        for task in tasks:
+            status = task.status
+            if status not in lanes:
+                status = TaskStatus.INTAKE.value
+            lanes[status].append(task)
+
+        lane_items = []
+        for status in lane_statuses:
+            cards = [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "priority": task.priority,
+                    "status": task.status,
+                    "assigned_to": task.assigned_to,
+                    "blocker_reason": task.blocker_reason,
+                    "dependency_count": len(task.dependencies or []),
+                    "updated_at": task.updated_at,
+                }
+                for task in sorted(lanes[status], key=lambda item: item.updated_at, reverse=True)
+            ]
+            lane_items.append(
+                {
+                    "status": status,
+                    "label": status.replace("_", " ").title(),
+                    "wip_limit": DEFAULT_WIP_LIMITS.get(status, 999),
+                    "count": len(cards),
+                    "blocked_count": len([card for card in cards if card["blocker_reason"]]),
+                    "cards": cards,
+                }
+            )
+
+        return {
+            "project_id": project_id,
+            "project_name": project.name,
+            "generated_at": utc_now().isoformat(),
+            "lanes": lane_items,
+            "counters": {
+                "total_tasks": len(tasks),
+                "blocked_tasks": len([task for task in tasks if task.status == TaskStatus.BLOCKED.value]),
+                "in_progress_tasks": len([task for task in tasks if task.status == TaskStatus.IN_PROGRESS.value]),
             },
         }
-    )
 
-    EVALUATIONS.update(
-        {
-            "evaluation-dashboard-1": {
-                "id": "evaluation-dashboard-1",
-                "project_id": project_core_id,
-                "task_id": "task-completed-dashboard",
-                "agent_id": worker_nova_id,
-                "evaluator_agent_id": evaluator_iris_id,
-                "score_completion": 8,
-                "score_quality": 8,
-                "score_reliability": 7,
-                "score_handover": 8,
-                "score_context": 7,
-                "score_clarity": 8,
-                "score_improvement": 7,
-                "missed_points": ["Alert copy can be more action-oriented."],
-                "strengths": ["Fast delivery", "Clean UI composition"],
-                "weaknesses": ["Limited edge-case tests"],
-                "recommendations": "Add dashboard fallback states for sparse datasets.",
-                "timestamp": ts(7),
-            },
-            "evaluation-memory-1": {
-                "id": "evaluation-memory-1",
-                "project_id": project_memory_id,
-                "task_id": "task-memory-curation",
-                "agent_id": worker_quill_id,
-                "evaluator_agent_id": evaluator_kai_id,
-                "score_completion": 4,
-                "score_quality": 4,
-                "score_reliability": 5,
-                "score_handover": 4,
-                "score_context": 4,
-                "score_clarity": 5,
-                "score_improvement": 4,
-                "missed_points": ["Did not include adversarial retrieval cases."],
-                "strengths": ["Workflow is documented clearly."],
-                "weaknesses": ["Low benchmark coverage"],
-                "recommendations": "Add stress tests and richer memory fixtures.",
-                "timestamp": ts(24),
-            },
+    def get_task_timeline(self, task_id: str) -> dict | None:
+        task = self.db.get(Task, task_id)
+        if not task:
+            return None
+        worklogs = self.db.scalars(select(Worklog).where(Worklog.task_id == task_id).order_by(desc(Worklog.timestamp))).all()
+        handovers = self.db.scalars(
+            select(Handover).where(Handover.task_id == task_id).order_by(desc(Handover.timestamp))
+        ).all()
+        transitions = self.db.scalars(
+            select(TaskTransition).where(TaskTransition.task_id == task_id).order_by(desc(TaskTransition.timestamp))
+        ).all()
+        evaluations = self.db.scalars(
+            select(Evaluation).where(Evaluation.task_id == task_id).order_by(desc(Evaluation.timestamp))
+        ).all()
+        memory = self.db.scalars(select(MemoryEntry).where(MemoryEntry.task_id == task_id)).all()
+        return {
+            "task": model_to_dict(task),
+            "worklogs": [model_to_dict(item) for item in worklogs],
+            "handovers": [model_to_dict(item) for item in handovers],
+            "transitions": [model_to_dict(item) for item in transitions],
+            "evaluations": [model_to_dict(item) for item in evaluations],
+            "memory": [model_to_dict(item) for item in memory],
         }
-    )
 
-    EVALUATION_OVERRIDE_AUDIT.append(
-        {
-            "evaluation_id": "evaluation-dashboard-1",
-            "owner_id": "owner-1",
-            "reason": "Adjusted based on release scope and dependency constraints.",
-            "original_scores": {
-                "score_completion": 7,
-                "score_quality": 7,
-                "score_reliability": 7,
-                "score_handover": 7,
-                "score_context": 7,
-                "score_clarity": 7,
-                "score_improvement": 7,
+    def get_dashboard_summary(self) -> dict:
+        projects = self.db.scalars(select(Project)).all()
+        tasks = self.db.scalars(select(Task)).all()
+        evaluations = self.db.scalars(select(Evaluation)).all()
+        handovers = self.db.scalars(select(Handover)).all()
+
+        blocked_tasks = [task for task in tasks if task.status == TaskStatus.BLOCKED.value]
+        in_progress_tasks = [task for task in tasks if task.status == TaskStatus.IN_PROGRESS.value]
+
+        low_score_entries = []
+        for evaluation in evaluations:
+            values = [
+                evaluation.score_completion,
+                evaluation.score_quality,
+                evaluation.score_reliability,
+                evaluation.score_handover,
+                evaluation.score_context,
+                evaluation.score_clarity,
+                evaluation.score_improvement,
+            ]
+            avg = sum(values) / len(values) if values else 0
+            if avg < 5:
+                low_score_entries.append({"evaluation_id": evaluation.id, "agent_id": evaluation.agent_id, "avg": avg})
+
+        project_cards = []
+        for project in projects:
+            project_tasks = [task for task in tasks if task.project_id == project.id]
+            project_evals = [evaluation for evaluation in evaluations if evaluation.project_id == project.id]
+            project_cards.append(
+                {
+                    "project_id": project.id,
+                    "name": project.name,
+                    "status": project.status,
+                    "task_count": len(project_tasks),
+                    "blocked_count": len([task for task in project_tasks if task.status == TaskStatus.BLOCKED.value]),
+                    "evaluation_count": len(project_evals),
+                }
+            )
+
+        return {
+            "totals": {
+                "active_projects": len([project for project in projects if project.status == ProjectStatus.ACTIVE.value]),
+                "tasks_in_progress": len(in_progress_tasks),
+                "blocked_tasks": len(blocked_tasks),
+                "recent_handovers": len(handovers),
+                "low_score_alerts": len(low_score_entries),
             },
-            "override_scores": {
-                "score_completion": 8,
-                "score_quality": 8,
-                "score_reliability": 7,
-                "score_handover": 8,
-                "score_context": 7,
-                "score_clarity": 8,
-                "score_improvement": 7,
+            "alerts": {
+                "blocked_tasks": [model_to_dict(task) for task in blocked_tasks[:10]],
+                "low_scores": low_score_entries[:10],
             },
-            "timestamp": ts(6),
+            "projects": project_cards[:20],
+            "recent_handovers": [model_to_dict(item) for item in sorted(handovers, key=lambda x: x.timestamp, reverse=True)[:10]],
+            "recent_evaluations": [
+                model_to_dict(item) for item in sorted(evaluations, key=lambda x: x.timestamp, reverse=True)[:10]
+            ],
         }
-    )
 
-    EVALUATION_QUEUE.extend(
-        [
-            {"job_id": "eval-job-001", "task_id": "task-completed-dashboard", "created_at": ts(8)},
-            {"job_id": "eval-job-002", "task_id": "task-memory-curation", "created_at": ts(25)},
+    # -------------------------
+    # Idempotency / outbox
+    # -------------------------
+    def get_cached_response(self, idempotency_key: str) -> dict | None:
+        record = self.db.scalar(
+            select(IdempotencyRecord).where(IdempotencyRecord.idempotency_key == idempotency_key)
+        )
+        if not record:
+            return None
+        return {"response": record.response, "stored_at": record.stored_at.isoformat()}
+
+    def store_cached_response(self, idempotency_key: str, response: dict) -> None:
+        serialized_response = jsonable_encoder(response)
+        record = self.db.scalar(
+            select(IdempotencyRecord).where(IdempotencyRecord.idempotency_key == idempotency_key)
+        )
+        if record:
+            record.response = serialized_response
+            record.stored_at = utc_now()
+        else:
+            self.db.add(IdempotencyRecord(idempotency_key=idempotency_key, response=serialized_response))
+        self.db.commit()
+
+    def enqueue_outbox_event(
+        self,
+        *,
+        aggregate_type: str,
+        aggregate_id: str,
+        project_id: str | None,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> dict:
+        event = OutboxEvent(
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+            project_id=project_id,
+            event_type=event_type,
+            payload=payload,
+            status="pending",
+            retry_count=0,
+            available_at=utc_now(),
+        )
+        self.db.add(event)
+        self.db.flush()
+        return model_to_dict(event)
+
+    async def publish_event(self, *, project_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
+        await broker.publish(
+            project_id,
+            {
+                "type": event_type,
+                "project_id": project_id,
+                "payload": payload,
+                "timestamp": utc_now().isoformat(),
+            },
+        )
+
+    def pending_outbox_events(self, *, limit: int = 50) -> list[OutboxEvent]:
+        now = utc_now()
+        return self.db.scalars(
+            select(OutboxEvent)
+            .where(OutboxEvent.status == "pending", OutboxEvent.available_at <= now)
+            .order_by(OutboxEvent.created_at)
+            .limit(limit)
+        ).all()
+
+    def mark_outbox_processed(self, event: OutboxEvent) -> None:
+        event.status = "processed"
+        event.processed_at = utc_now()
+        event.last_error = None
+        self.db.commit()
+
+    def mark_outbox_retry(self, event: OutboxEvent, error_message: str) -> None:
+        event.retry_count += 1
+        event.last_error = error_message
+        if event.retry_count >= 5:
+            event.status = "failed"
+        else:
+            event.available_at = utc_now() + timedelta(seconds=min(120, 2 ** event.retry_count))
+        self.db.commit()
+
+    def outbox_lag_seconds(self) -> float:
+        earliest = self.db.scalar(
+            select(OutboxEvent).where(OutboxEvent.status == "pending").order_by(OutboxEvent.created_at).limit(1)
+        )
+        if not earliest:
+            return 0.0
+        return max(0.0, (utc_now() - earliest.created_at).total_seconds())
+
+    # -------------------------
+    # Utilities
+    # -------------------------
+    def clear_all(self) -> None:
+        # Child-to-parent deletion order
+        self.db.execute(delete(TaskTransition))
+        self.db.execute(delete(OutboxEvent))
+        self.db.execute(delete(IdempotencyRecord))
+        self.db.execute(delete(EvaluationOverrideAudit))
+        self.db.execute(delete(Evaluation))
+        self.db.execute(delete(MemoryEntry))
+        self.db.execute(delete(Handover))
+        self.db.execute(delete(Worklog))
+        self.db.execute(delete(Task))
+        self.db.execute(delete(Agent))
+        self.db.execute(delete(ProjectProcessConfig))
+        self.db.execute(delete(Project))
+        self.db.commit()
+
+    def seed_demo_data(self, *, force: bool = False) -> bool:
+        existing = self.db.scalar(select(func.count()).select_from(Project)) or 0
+        if existing and not force:
+            return False
+
+        if force:
+            self.clear_all()
+
+        if not force and existing:
+            return False
+
+        project = Project(
+            id="project-synapse-core",
+            name="Synapse OS Delivery",
+            description="Agent-first orchestration platform.",
+            objective="Ship production-grade workflow and Kanban.",
+            owner="owner-1",
+            status=ProjectStatus.ACTIVE.value,
+            tags=["v1", "production", "agent-ops"],
+            manager_agent_id="agent-manager-orion",
+        )
+        project2 = Project(
+            id="project-memory-pipeline",
+            name="Memory Reliability Track",
+            description="Improve curated memory quality and retrieval relevance.",
+            objective="Lower repeated failures via contextual memory.",
+            owner="owner-1",
+            status=ProjectStatus.ACTIVE.value,
+            tags=["memory", "qdrant"],
+            manager_agent_id="agent-manager-atlas",
+        )
+        self.db.add_all([project, project2])
+
+        agents = [
+            Agent(
+                id="agent-manager-orion",
+                name="Manager Orion",
+                role="manager",
+                type="project_side",
+                project_id=project.id,
+                capabilities=["planning", "orchestration"],
+                status=AgentStatus.ACTIVE.value,
+            ),
+            Agent(
+                id="agent-manager-atlas",
+                name="Manager Atlas",
+                role="manager",
+                type="project_side",
+                project_id=project2.id,
+                capabilities=["memory-review"],
+                status=AgentStatus.ACTIVE.value,
+            ),
+            Agent(
+                id="agent-worker-lex",
+                name="Worker Lex",
+                role="worker",
+                type="project_side",
+                project_id=project.id,
+                capabilities=["frontend", "tooling"],
+                status=AgentStatus.ACTIVE.value,
+            ),
+            Agent(
+                id="agent-worker-nova",
+                name="Worker Nova",
+                role="worker",
+                type="project_side",
+                project_id=project.id,
+                capabilities=["backend", "api"],
+                status=AgentStatus.ACTIVE.value,
+            ),
+            Agent(
+                id="agent-worker-quill",
+                name="Worker Quill",
+                role="worker",
+                type="project_side",
+                project_id=project2.id,
+                capabilities=["memory", "vector"],
+                status=AgentStatus.ACTIVE.value,
+            ),
+            Agent(
+                id="agent-evaluator-iris",
+                name="Evaluator Iris",
+                role="evaluator",
+                type="platform_side",
+                project_id=project.id,
+                capabilities=["quality-scoring"],
+                status=AgentStatus.ACTIVE.value,
+            ),
         ]
-    )
+        self.db.add_all(agents)
 
-    MEMORY.update(
-        {
-            "memory-raw-runtime-1": {
-                "id": "memory-raw-runtime-1",
-                "project_id": project_core_id,
-                "task_id": "task-progress-runtime",
-                "memory_type": "task",
-                "title": "Tool tracing edge case",
-                "content": "Batch tool calls can return partial failures when payload schemas diverge.",
-                "source_ref": "worklog-runtime-1",
-                "approved_by": None,
-                "promotion_status": MemoryPromotionStatus.RAW.value,
-                "is_curated": False,
-                "created_at": ts(10),
-                "updated_at": ts(10),
-            },
-            "memory-curated-ui-1": {
-                "id": "memory-curated-ui-1",
-                "project_id": project_core_id,
-                "task_id": "task-parent-ux",
-                "memory_type": "project",
-                "title": "Responsive board rule",
-                "content": "Prefer responsive lane grids over fixed-width horizontal boards to avoid page overflow.",
-                "source_ref": "apps/web/src/app/tasks/page.tsx",
-                "approved_by": manager_core_id,
-                "promotion_status": MemoryPromotionStatus.PROMOTED.value,
-                "is_curated": True,
-                "created_at": ts(5),
-                "updated_at": ts(4),
-            },
-            "memory-curated-memory-1": {
-                "id": "memory-curated-memory-1",
-                "project_id": project_memory_id,
-                "task_id": "task-memory-curation",
-                "memory_type": "task",
-                "title": "Hybrid promotion baseline",
-                "content": "Memory entries require high-signal suggestion plus manager confirmation before promotion.",
-                "source_ref": "apps/api/src/app/services/memory.py",
-                "approved_by": manager_memory_id,
-                "promotion_status": MemoryPromotionStatus.PROMOTED.value,
-                "is_curated": True,
-                "created_at": ts(28),
-                "updated_at": ts(23),
-            },
-        }
-    )
+        task_seed = [
+            ("task-intake", TaskStatus.INTAKE.value, None),
+            ("task-ready", TaskStatus.READY.value, None),
+            ("task-assigned", TaskStatus.ASSIGNED.value, "agent-worker-lex"),
+            ("task-progress", TaskStatus.IN_PROGRESS.value, "agent-worker-nova"),
+            ("task-handover", TaskStatus.AWAITING_HANDOVER.value, "agent-worker-lex"),
+            ("task-review", TaskStatus.UNDER_REVIEW.value, "agent-worker-nova"),
+            ("task-evaluation", TaskStatus.EVALUATION.value, "agent-worker-nova"),
+            ("task-completed", TaskStatus.COMPLETED.value, "agent-worker-nova"),
+            ("task-blocked", TaskStatus.BLOCKED.value, "agent-worker-lex"),
+            ("task-reopened", TaskStatus.REOPENED.value, "agent-worker-lex"),
+        ]
+        for task_id, status, assignee in task_seed:
+            self.db.add(
+                Task(
+                    id=task_id,
+                    project_id=project.id,
+                    title=f"Demo {status.replace('_', ' ').title()} Task",
+                    description=f"Seeded task for lane {status}.",
+                    created_by="agent-manager-orion",
+                    assigned_to=assignee,
+                    priority=TaskPriority.MEDIUM.value,
+                    status=status,
+                    dependencies=[],
+                    acceptance_criteria="Visible in board and timeline.",
+                    context_refs=[],
+                    blocker_reason="Waiting for external dependency." if status == TaskStatus.BLOCKED.value else None,
+                    parent_task_depth=0,
+                    evaluation_queued=status in {TaskStatus.EVALUATION.value, TaskStatus.COMPLETED.value},
+                )
+            )
 
-    return True
+        self.db.add(
+            Task(
+                id="task-memory-curation",
+                project_id=project2.id,
+                title="Memory curation baseline",
+                description="Seeded memory task for evaluation and alerts.",
+                created_by="agent-manager-atlas",
+                assigned_to="agent-worker-quill",
+                priority=TaskPriority.HIGH.value,
+                status=TaskStatus.EVALUATION.value,
+                dependencies=[],
+                acceptance_criteria="Curated entries visible with audit trail.",
+                context_refs=[],
+                blocker_reason=None,
+                parent_task_depth=0,
+                evaluation_queued=True,
+            )
+        )
+
+        self.db.add(
+            Evaluation(
+                id="evaluation-memory-low",
+                project_id=project2.id,
+                task_id="task-memory-curation",
+                agent_id="agent-worker-quill",
+                evaluator_agent_id="agent-evaluator-iris",
+                score_completion=4,
+                score_quality=4,
+                score_reliability=5,
+                score_handover=4,
+                score_context=4,
+                score_clarity=5,
+                score_improvement=4,
+                missed_points=["Need broader benchmark coverage."],
+                strengths=["Clear structure"],
+                weaknesses=["Limited edge-case validation"],
+                recommendations="Add adversarial retrieval tests.",
+            )
+        )
+
+        self.db.add(
+            Worklog(
+                id="worklog-task-progress",
+                task_id="task-progress",
+                agent_id="agent-worker-nova",
+                action_type=WorklogActionType.PROGRESS.value,
+                summary="Implemented workflow transition service.",
+                detailed_log="Added transition matrix and required gates.",
+                artifacts=["apps/api/src/app/services/workflow.py"],
+                confidence=0.84,
+            )
+        )
+        self.db.add(
+            Handover(
+                id="handover-task",
+                task_id="task-handover",
+                project_id=project.id,
+                from_agent_id="agent-worker-lex",
+                to_agent_id="agent-evaluator-iris",
+                completed_work="Prepared implementation package.",
+                pending_work="Evaluator validation",
+                blockers="None",
+                risks="Potential schema mismatch",
+                next_steps="Run integration checks",
+                confidence=0.81,
+            )
+        )
+        self.db.add(
+            MemoryEntry(
+                id="memory-board-rule",
+                project_id=project.id,
+                task_id="task-progress",
+                agent_id="agent-worker-nova",
+                memory_type="project",
+                title="Board usability guideline",
+                content="Prefer structured lanes with transition guards and fast actions.",
+                source_ref="worklog-task-progress",
+                importance=4,
+                is_curated=True,
+                promotion_status=MemoryPromotionStatus.PROMOTED.value,
+            )
+        )
+
+        self.bootstrap_default_process(project.id)
+        self.bootstrap_default_process(project2.id)
+        self.db.commit()
+        return True
+
+
+def get_repository(db: Session = Depends(get_db)) -> Repository:
+    return Repository(db)
+
+
+def seed_demo_data(repo: Repository, *, force: bool = False) -> bool:
+    return repo.seed_demo_data(force=force)

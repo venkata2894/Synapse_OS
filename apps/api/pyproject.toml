@@ -13,7 +13,8 @@ dependencies = [
   "psycopg[binary]>=3.2.0",
   "qdrant-client>=1.15.0",
   "mcp>=1.17.0",
-  "python-dotenv>=1.1.0"
+  "python-dotenv>=1.1.0",
+  "pyjwt[crypto]>=2.10.0"
 ]
 
 [project.optional-dependencies]

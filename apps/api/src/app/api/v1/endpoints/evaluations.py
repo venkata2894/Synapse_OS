@@ -3,14 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.auth import Actor, get_current_actor
+from app.core.config import settings
 from app.schemas.evaluation import EvaluationCreate, EvaluationOverrideRequest, EvaluationRequest
 from app.services.policies import build_override_audit
-from app.services.repository import (
-    EVALUATIONS,
-    EVALUATION_OVERRIDE_AUDIT,
-    EVALUATION_QUEUE,
-    create_evaluation,
-)
+from app.services.repository import Repository, get_repository
 
 router = APIRouter()
 
@@ -19,39 +15,41 @@ router = APIRouter()
 def list_evaluations(
     project_id: str | None = Query(default=None),
     agent_id: str | None = Query(default=None),
+    limit: int = Query(default=settings.sentientops_default_page_size, ge=1, le=settings.sentientops_max_page_size),
+    offset: int = Query(default=0, ge=0),
     actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
 ) -> dict:
     _ = actor
-    items = list(EVALUATIONS.values())
-    if project_id:
-        items = [evaluation for evaluation in items if evaluation.get("project_id") == project_id]
-    if agent_id:
-        items = [evaluation for evaluation in items if evaluation.get("agent_id") == agent_id]
-
-    by_evaluation: dict[str, list[dict]] = {}
-    for audit in EVALUATION_OVERRIDE_AUDIT:
-        by_evaluation.setdefault(audit["evaluation_id"], []).append(audit)
-
-    enriched = []
-    for item in items:
-        audits = by_evaluation.get(item["id"], [])
-        enriched.append({**item, "override_audit_entries": audits})
-    enriched = sorted(enriched, key=lambda evaluation: evaluation.get("timestamp", ""), reverse=True)
-    return {"items": enriched, "count": len(enriched)}
+    return repo.list_evaluations(project_id=project_id, agent_id=agent_id, limit=limit, offset=offset)
 
 
 @router.post("/request")
-def request_evaluation(payload: EvaluationRequest, actor: Actor = Depends(get_current_actor)) -> dict:
+def request_evaluation(
+    payload: EvaluationRequest,
+    actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
+) -> dict:
     _ = actor
-    job = payload.model_dump()
-    EVALUATION_QUEUE.append(job)
-    return {"queued": True, "job": job}
+    event = repo.enqueue_outbox_event(
+        aggregate_type="task",
+        aggregate_id=payload.task_id,
+        project_id=payload.project_id,
+        event_type="evaluation.requested",
+        payload=payload.model_dump(),
+    )
+    repo.db.commit()
+    return {"queued": True, "job": payload.model_dump(), "outbox_event_id": event["id"]}
 
 
 @router.post("/submit")
-def submit_evaluation(payload: EvaluationCreate, actor: Actor = Depends(get_current_actor)) -> dict:
+def submit_evaluation(
+    payload: EvaluationCreate,
+    actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
+) -> dict:
     _ = actor
-    return create_evaluation(payload)
+    return repo.create_evaluation(payload)
 
 
 @router.post("/{evaluation_id}/override")
@@ -59,22 +57,23 @@ def override_evaluation(
     evaluation_id: str,
     payload: EvaluationOverrideRequest,
     actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
 ) -> dict:
     _ = actor
-    evaluation = EVALUATIONS.get(evaluation_id)
-    if not evaluation:
+    evaluations = repo.list_evaluations(limit=500, offset=0)["items"]
+    match = next((item for item in evaluations if item["id"] == evaluation_id), None)
+    if not match:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="evaluation not found")
 
     original = {
-        "score_completion": evaluation["score_completion"],
-        "score_quality": evaluation["score_quality"],
-        "score_reliability": evaluation["score_reliability"],
-        "score_handover": evaluation["score_handover"],
-        "score_context": evaluation["score_context"],
-        "score_clarity": evaluation["score_clarity"],
-        "score_improvement": evaluation["score_improvement"],
+        "score_completion": int(match["score_completion"]),
+        "score_quality": int(match["score_quality"]),
+        "score_reliability": int(match["score_reliability"]),
+        "score_handover": int(match["score_handover"]),
+        "score_context": int(match["score_context"]),
+        "score_clarity": int(match["score_clarity"]),
+        "score_improvement": int(match["score_improvement"]),
     }
-
     override_scores = {
         "score_completion": payload.score_completion,
         "score_quality": payload.score_quality,
@@ -84,23 +83,19 @@ def override_evaluation(
         "score_clarity": payload.score_clarity,
         "score_improvement": payload.score_improvement,
     }
-
     audit = build_override_audit(
         owner_id=payload.owner_id,
         reason=payload.reason,
         original_scores=original,
         override_scores=override_scores,
     )
-    EVALUATION_OVERRIDE_AUDIT.append(
-        {
-            "evaluation_id": evaluation_id,
-            "owner_id": audit.owner_id,
-            "reason": audit.reason,
-            "original_scores": audit.original_scores,
-            "override_scores": audit.override_scores,
-            "timestamp": audit.timestamp.isoformat(),
-        }
+    updated = repo.add_evaluation_override(
+        evaluation_id=evaluation_id,
+        owner_id=audit.owner_id,
+        reason=audit.reason,
+        original_scores=audit.original_scores,
+        override_scores=audit.override_scores,
     )
-    evaluation.update(override_scores)
-    evaluation["override_reason"] = payload.reason
-    return {"evaluation": evaluation, "audit_recorded": True}
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="evaluation not found")
+    return {"evaluation": updated["evaluation"], "audit_recorded": True}

@@ -39,12 +39,14 @@ class TaskPriority(StrEnum):
 
 
 class TaskStatus(StrEnum):
+    INTAKE = "intake"
     BACKLOG = "backlog"
     READY = "ready"
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     AWAITING_HANDOVER = "awaiting_handover"
     UNDER_REVIEW = "under_review"
+    EVALUATION = "evaluation"
     BLOCKED = "blocked"
     COMPLETED = "completed"
     REOPENED = "reopened"
@@ -73,4 +75,3 @@ class MemoryPromotionStatus(StrEnum):
     SUGGESTED = "suggested"
     PROMOTED = "promoted"
     REJECTED = "rejected"
-

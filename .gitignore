@@ -18,6 +18,14 @@ coverage/
 .env
 .env.local
 .env.*.local
+.codex-logs/
+sentientops.db
+sentientops_test.db
+reports/uat/*.json
+reports/uat/*.md
+reports/uat/artifacts/*
+!reports/uat/.gitkeep
+!reports/uat/artifacts/.gitkeep
 
 .idea/
 .vscode/

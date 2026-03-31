@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import TaskPriority, TaskStatus
@@ -42,3 +44,16 @@ class TaskStatusUpdate(BaseModel):
             raise ValueError("blocked status requires blocker_reason")
         return self
 
+
+class TaskTransitionRequest(BaseModel):
+    target_status: TaskStatus
+    reason: str | None = None
+    blocker_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    assigned_to: str | None = None
+
+    @model_validator(mode="after")
+    def validate_transition_payload(self) -> "TaskTransitionRequest":
+        if self.target_status == TaskStatus.BLOCKED and not self.blocker_reason:
+            raise ValueError("blocked transition requires blocker_reason")
+        return self

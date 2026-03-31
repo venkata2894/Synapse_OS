@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from app.core.auth import Actor
+from app.db.session import SessionLocal
 from app.services.agent_toolkit import execute_tool, get_tool_manifest
+from app.services.repository import Repository
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -19,7 +21,12 @@ def tool_manifest() -> dict:
 @mcp.tool()
 def call_tool(tool_name: str, payload: dict, agent_id: str = "mcp-agent", role: str = "agent") -> dict:
     actor = Actor(actor_id=agent_id, role=role, auth_mode="mcp")
-    return execute_tool(tool_name, payload, actor)
+    session = SessionLocal()
+    try:
+        repo = Repository(session)
+        return execute_tool(tool_name, payload, actor, repo)
+    finally:
+        session.close()
 
 
 def get_mcp_asgi_app():
@@ -28,4 +35,3 @@ def get_mcp_asgi_app():
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
-

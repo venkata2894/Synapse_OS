@@ -59,6 +59,8 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     acceptance_criteria: Mapped[str] = mapped_column(Text)
     context_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
     blocker_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_task_depth: Mapped[int] = mapped_column(Integer, default=0)
+    evaluation_queued: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Worklog(UUIDPrimaryKeyMixin, Base):
@@ -108,6 +110,7 @@ class Evaluation(UUIDPrimaryKeyMixin, Base):
     strengths: Mapped[list[str]] = mapped_column(JSON, default=list)
     weaknesses: Mapped[list[str]] = mapped_column(JSON, default=list)
     recommendations: Mapped[str] = mapped_column(Text)
+    override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -137,3 +140,49 @@ class MemoryEntry(UUIDPrimaryKeyMixin, Base):
     promotion_status: Mapped[str] = mapped_column(String(50), default=MemoryPromotionStatus.RAW.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+
+class ProjectProcessConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "project_process_configs"
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), unique=True)
+    template_name: Mapped[str] = mapped_column(String(120), default="default_v1")
+    workflow_stages: Mapped[list[str]] = mapped_column(JSON, default=list)
+    transition_matrix: Mapped[dict[str, list[str]]] = mapped_column(JSON, default=dict)
+    wip_limits: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
+
+
+class TaskTransition(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "task_transitions"
+
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"))
+    from_status: Mapped[str] = mapped_column(String(50))
+    to_status: Mapped[str] = mapped_column(String(50))
+    actor_id: Mapped[str] = mapped_column(String(255))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transition_metadata: Mapped[dict[str, object]] = mapped_column("metadata", JSON, default=dict)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class OutboxEvent(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "outbox_events"
+
+    aggregate_type: Mapped[str] = mapped_column(String(120))
+    aggregate_id: Mapped[str] = mapped_column(String(255))
+    project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(120))
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class IdempotencyRecord(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "idempotency_records"
+
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True)
+    response: Mapped[dict[str, object]] = mapped_column(JSON)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
