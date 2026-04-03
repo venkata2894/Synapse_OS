@@ -1,10 +1,7 @@
 from __future__ import annotations
-
-import logging
-
-from anyio import from_thread
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.v1.endpoints.event_utils import emit_project_event
 from app.core.auth import Actor, get_current_actor
 from app.core.config import settings
 from app.schemas.task import (
@@ -20,29 +17,6 @@ from app.services.repository import Repository, get_repository
 from app.services.workflow import WorkflowError
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
-
-
-def _emit_project_event(repo: Repository, *, payload: dict, event_type: str) -> None:
-    project_id = payload.get("project_id")
-    if not project_id:
-        task_payload = payload.get("task")
-        if isinstance(task_payload, dict):
-            project_id = task_payload.get("project_id")
-    if not project_id:
-        return
-    try:
-        from_thread.run(
-            repo.publish_event,
-            project_id=project_id,
-            event_type=event_type,
-            payload=payload,
-        )
-    except RuntimeError:
-        # No running async context (e.g. offline scripts); event stream publish is best effort.
-        logger.debug("Skipping project event publish outside request context: %s", event_type)
-    except Exception:  # pragma: no cover - defensive runtime guard
-        logger.exception("Failed to publish project event: %s", event_type)
 
 
 @router.get("")
@@ -108,7 +82,7 @@ def assign_task_endpoint(
     item = repo.assign_task(task_id, payload.assigned_to, actor_id=actor.actor_id)
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
-    _emit_project_event(repo, payload={"task": item}, event_type="task.assigned")
+    emit_project_event(repo, project_id=item.get("project_id"), payload={"task": item}, event_type="task.assigned")
     return item
 
 
@@ -126,7 +100,7 @@ def claim_task_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
-    _emit_project_event(repo, payload={"task": item}, event_type="task.claimed")
+    emit_project_event(repo, project_id=item.get("project_id"), payload={"task": item}, event_type="task.claimed")
     return item
 
 
@@ -149,7 +123,7 @@ def update_task_status_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
-    _emit_project_event(repo, payload=result, event_type="task.transitioned")
+    emit_project_event(repo, project_id=result["task"].get("project_id"), payload=result, event_type="task.transitioned")
     return result["task"]
 
 
@@ -174,7 +148,7 @@ def transition_task_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
-    _emit_project_event(repo, payload=result, event_type="task.transitioned")
+    emit_project_event(repo, project_id=result["task"].get("project_id"), payload=result, event_type="task.transitioned")
     return result
 
 

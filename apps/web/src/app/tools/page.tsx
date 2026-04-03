@@ -8,13 +8,23 @@ import { useAgentKey } from "@/hooks/use-agent-key";
 import { callAgentTool, getAgentToolManifest } from "@/lib/api-client";
 import { shortDate } from "@/lib/format";
 
-type PresetId = "create_project" | "create_task" | "transition_task" | "request_evaluation";
+type PresetId =
+  | "create_project"
+  | "create_task"
+  | "transition_task"
+  | "request_evaluation"
+  | "register_agent"
+  | "append_worklog"
+  | "fetch_task_context";
 
 const PRESET_LABELS: Record<PresetId, string> = {
   create_project: "Create Project",
   create_task: "Create Task",
   transition_task: "Transition Task",
-  request_evaluation: "Request Evaluation"
+  request_evaluation: "Request Evaluation",
+  register_agent: "Register Agent",
+  append_worklog: "Append Worklog",
+  fetch_task_context: "Fetch Task Context"
 };
 
 export default function ToolConsolePage() {
@@ -39,8 +49,24 @@ export default function ToolConsolePage() {
     task_id: "",
     target_status: "in_progress",
     agent_id: "",
-    requested_by: "owner-1"
+    requested_by: "owner-1",
+    role: "worker",
+    type: "project_side",
+    capabilities: "frontend, tooling",
+    summary: "Implemented a scoped update",
+    action_type: "progress",
+    detailed_log: "Updated task context and validated the interaction path."
   });
+
+  const PRESET_FIELDS: Record<PresetId, string[]> = {
+    create_project: ["name", "description", "objective", "owner"],
+    create_task: ["project_id", "title", "owner"],
+    transition_task: ["task_id", "target_status"],
+    request_evaluation: ["project_id", "task_id", "agent_id", "requested_by"],
+    register_agent: ["name", "role", "type", "project_id", "capabilities"],
+    append_worklog: ["task_id", "agent_id", "action_type", "summary", "detailed_log"],
+    fetch_task_context: ["task_id"]
+  };
 
   useEffect(() => {
     if (!isLoaded || !agentKey.trim()) {
@@ -107,6 +133,32 @@ export default function ToolConsolePage() {
           task_id: presetFields.task_id,
           agent_id: presetFields.agent_id || "agent-worker-lex",
           requested_by: presetFields.requested_by || "owner-1"
+        };
+      case "register_agent":
+        return {
+          name: presetFields.name || "Worker Delta",
+          role: presetFields.role || "worker",
+          type: presetFields.type || "project_side",
+          project_id: presetFields.project_id || null,
+          capabilities: (presetFields.capabilities || "frontend, tooling")
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          status: "active"
+        };
+      case "append_worklog":
+        return {
+          task_id: presetFields.task_id,
+          agent_id: presetFields.agent_id || "agent-worker-lex",
+          action_type: presetFields.action_type || "progress",
+          summary: presetFields.summary || "Implemented a scoped update",
+          detailed_log: presetFields.detailed_log || "Updated task context and validated the interaction path.",
+          artifacts: [],
+          confidence: 0.82
+        };
+      case "fetch_task_context":
+        return {
+          task_id: presetFields.task_id
         };
       default:
         return {};
@@ -183,7 +235,7 @@ export default function ToolConsolePage() {
                 ))}
               </select>
               <div className="mt-2 space-y-2">
-                {["name", "project_id", "task_id", "target_status", "agent_id"].map((field) => (
+                {PRESET_FIELDS[presetId].map((field) => (
                   <input
                     key={field}
                     value={presetFields[field] ?? ""}

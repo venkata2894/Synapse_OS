@@ -8,9 +8,12 @@ import type {
   ListResponse,
   ProcessTemplate,
   ProjectContract,
+  ProjectStaffingSummary,
   TaskContract,
   TaskTimelineResponse,
-  TaskTransitionResponse
+  TaskTransitionResponse,
+  WorklogEntry,
+  WorklogListResponse
 } from "@sentientops/contracts";
 
 type ActorContext = {
@@ -60,6 +63,90 @@ export async function getProject(actor: ActorContext, projectId: string): Promis
   return requestJson<ProjectContract>(`/projects/${projectId}`, {
     method: "GET",
     headers: actorHeaders(actor)
+  });
+}
+
+export async function getProjectStaffing(actor: ActorContext, projectId: string): Promise<ProjectStaffingSummary> {
+  return requestJson<ProjectStaffingSummary>(`/projects/${projectId}/staffing`, {
+    method: "GET",
+    headers: actorHeaders(actor)
+  });
+}
+
+export async function createProjectAgent(
+  actor: ActorContext,
+  projectId: string,
+  payload: {
+    name: string;
+    role: "manager" | "worker" | "evaluator";
+    type: "project_side" | "platform_side";
+    capabilities: string[];
+    status: "active" | "inactive" | "paused";
+  }
+): Promise<AgentContract> {
+  return requestJson<AgentContract>(`/projects/${projectId}/agents`, {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function attachAgentToProject(
+  actor: ActorContext,
+  projectId: string,
+  agentId: string
+): Promise<AgentContract> {
+  return requestJson<AgentContract>(`/projects/${projectId}/agents/attach`, {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify({ agent_id: agentId })
+  });
+}
+
+export async function detachAgentFromProject(
+  actor: ActorContext,
+  projectId: string,
+  agentId: string
+): Promise<{ agent: AgentContract; project: ProjectContract }> {
+  return requestJson<{ agent: AgentContract; project: ProjectContract }>(`/projects/${projectId}/agents/${agentId}/detach`, {
+    method: "POST",
+    headers: actorHeaders(actor)
+  });
+}
+
+export async function assignProjectManager(
+  actor: ActorContext,
+  projectId: string,
+  managerAgentId: string
+): Promise<ProjectContract> {
+  return requestJson<ProjectContract>(`/projects/${projectId}/manager`, {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify({ manager_agent_id: managerAgentId })
+  });
+}
+
+export async function updateAgentStatus(
+  actor: ActorContext,
+  agentId: string,
+  status: "active" | "inactive" | "paused"
+): Promise<AgentContract> {
+  return requestJson<AgentContract>(`/agents/${agentId}/status`, {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify({ status })
   });
 }
 
@@ -115,6 +202,25 @@ export async function listEvaluations(
   });
 }
 
+export async function requestEvaluation(
+  actor: ActorContext,
+  payload: {
+    project_id: string;
+    task_id: string;
+    agent_id: string;
+    requested_by: string;
+  }
+): Promise<Record<string, unknown>> {
+  return requestJson<Record<string, unknown>>("/evaluations/request", {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function fetchTaskContext(agentApiKey: string, taskId: string): Promise<Record<string, unknown>> {
   return callAgentTool(agentApiKey, "fetch_task_context", { task_id: taskId });
 }
@@ -151,6 +257,47 @@ export async function getTaskTimeline(actor: ActorContext, taskId: string): Prom
   return requestJson<TaskTimelineResponse>(`/tasks/${taskId}/timeline`, {
     method: "GET",
     headers: actorHeaders(actor)
+  });
+}
+
+export async function listWorklogs(
+  actor: ActorContext,
+  filters: { projectId?: string; taskId?: string; agentId?: string; actionType?: string; limit?: number; offset?: number } = {}
+): Promise<WorklogListResponse> {
+  const params = new URLSearchParams();
+  if (filters.projectId) params.set("project_id", filters.projectId);
+  if (filters.taskId) params.set("task_id", filters.taskId);
+  if (filters.agentId) params.set("agent_id", filters.agentId);
+  if (filters.actionType) params.set("action_type", filters.actionType);
+  if (typeof filters.limit === "number") params.set("limit", String(filters.limit));
+  if (typeof filters.offset === "number") params.set("offset", String(filters.offset));
+  const query = params.toString() ? `?${params.toString()}` : "";
+
+  return requestJson<WorklogListResponse>(`/worklogs${query}`, {
+    method: "GET",
+    headers: actorHeaders(actor)
+  });
+}
+
+export async function appendWorklog(
+  actor: ActorContext,
+  payload: {
+    task_id: string;
+    agent_id: string;
+    action_type: string;
+    summary: string;
+    detailed_log: string;
+    artifacts: string[];
+    confidence: number;
+  }
+): Promise<WorklogEntry> {
+  return requestJson<WorklogEntry>("/worklogs", {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
   });
 }
 

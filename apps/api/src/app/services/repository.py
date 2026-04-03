@@ -26,6 +26,7 @@ from app.models.entities import (
     Worklog,
 )
 from app.models.enums import (
+    AgentRole,
     AgentStatus,
     MemoryPromotionStatus,
     ProjectStatus,
@@ -193,6 +194,12 @@ class Repository:
         self.db.refresh(agent)
         return model_to_dict(agent)
 
+    def create_project_agent(self, project_id: str, payload: AgentCreate) -> dict:
+        project = self.db.get(Project, project_id)
+        if not project:
+            raise ValueError("project not found")
+        return self.create_agent(payload.model_copy(update={"project_id": project_id}))
+
     def update_agent(self, agent_id: str, payload: AgentUpdate) -> dict | None:
         agent = self.db.get(Agent, agent_id)
         if not agent:
@@ -211,6 +218,118 @@ class Repository:
         self.db.commit()
         self.db.refresh(agent)
         return model_to_dict(agent)
+
+    def attach_agent_to_project(self, project_id: str, agent_id: str) -> dict:
+        project = self.db.get(Project, project_id)
+        if not project:
+            raise ValueError("project not found")
+        agent = self.db.get(Agent, agent_id)
+        if not agent:
+            raise ValueError("agent not found")
+
+        if agent.project_id and agent.project_id != project_id:
+            current_project = self.db.get(Project, agent.project_id)
+            if current_project and current_project.status == ProjectStatus.ACTIVE.value:
+                raise ValueError("agent is already assigned to a different active project")
+
+        agent.project_id = project_id
+        self.db.commit()
+        self.db.refresh(agent)
+        return model_to_dict(agent)
+
+    def detach_agent_from_project(self, project_id: str, agent_id: str) -> dict:
+        project = self.db.get(Project, project_id)
+        if not project:
+            raise ValueError("project not found")
+        agent = self.db.get(Agent, agent_id)
+        if not agent:
+            raise ValueError("agent not found")
+        if agent.project_id != project_id:
+            raise ValueError("agent is not attached to this project")
+
+        agent.project_id = None
+        if project.manager_agent_id == agent_id:
+            project.manager_agent_id = None
+        self.db.commit()
+        self.db.refresh(agent)
+        self.db.refresh(project)
+        return {"agent": model_to_dict(agent), "project": model_to_dict(project)}
+
+    def get_project_staffing(self, project_id: str) -> dict | None:
+        project = self.db.get(Project, project_id)
+        if not project:
+            return None
+
+        agents = self.db.scalars(
+            select(Agent).where(Agent.project_id == project_id).order_by(Agent.role, Agent.name)
+        ).all()
+        attachable_agents = self.db.scalars(
+            select(Agent).where(Agent.project_id.is_(None)).order_by(desc(Agent.updated_at)).limit(50)
+        ).all()
+        tasks = self.db.scalars(select(Task).where(Task.project_id == project_id)).all()
+        evaluations = self.db.scalars(select(Evaluation).where(Evaluation.project_id == project_id)).all()
+        worklogs = self.db.execute(
+            select(Worklog.agent_id, func.count(Worklog.id))
+            .join(Task, Worklog.task_id == Task.id)
+            .where(Task.project_id == project_id)
+            .group_by(Worklog.agent_id)
+        ).all()
+        worklog_counts = {agent_id: count for agent_id, count in worklogs}
+
+        assigned_counts: dict[str, int] = defaultdict(int)
+        completed_counts: dict[str, int] = defaultdict(int)
+        for task in tasks:
+            if task.assigned_to:
+                assigned_counts[task.assigned_to] += 1
+                if task.status == TaskStatus.COMPLETED.value:
+                    completed_counts[task.assigned_to] += 1
+
+        evaluation_totals: dict[str, list[float]] = defaultdict(list)
+        for evaluation in evaluations:
+            values = [
+                evaluation.score_completion,
+                evaluation.score_quality,
+                evaluation.score_reliability,
+                evaluation.score_handover,
+                evaluation.score_context,
+                evaluation.score_clarity,
+                evaluation.score_improvement,
+            ]
+            avg = sum(values) / len(values) if values else 0.0
+            evaluation_totals[evaluation.agent_id].append(avg)
+
+        def serialize_agent(agent: Agent) -> dict[str, Any]:
+            scores = evaluation_totals.get(agent.id, [])
+            return {
+                **model_to_dict(agent),
+                "assigned_task_count": assigned_counts.get(agent.id, 0),
+                "completed_task_count": completed_counts.get(agent.id, 0),
+                "worklog_count": int(worklog_counts.get(agent.id, 0)),
+                "average_score": round(sum(scores) / len(scores), 2) if scores else None,
+                "is_project_manager": project.manager_agent_id == agent.id,
+            }
+
+        manager = next((agent for agent in agents if project.manager_agent_id == agent.id), None)
+        workers = [agent for agent in agents if agent.role == AgentRole.WORKER.value]
+        evaluators = [agent for agent in agents if agent.role == AgentRole.EVALUATOR.value]
+        other_agents = [agent for agent in agents if agent.role not in {AgentRole.WORKER.value, AgentRole.EVALUATOR.value}]
+
+        return {
+            "project": model_to_dict(project),
+            "manager": serialize_agent(manager) if manager else None,
+            "workers": [serialize_agent(agent) for agent in workers],
+            "evaluators": [serialize_agent(agent) for agent in evaluators],
+            "other_agents": [serialize_agent(agent) for agent in other_agents if agent.id != project.manager_agent_id],
+            "attachable_agents": [serialize_agent(agent) for agent in attachable_agents],
+            "counters": {
+                "total_agents": len(agents),
+                "active_agents": len([agent for agent in agents if agent.status == AgentStatus.ACTIVE.value]),
+                "workers": len(workers),
+                "evaluators": len(evaluators),
+                "tasks_in_progress": len([task for task in tasks if task.status == TaskStatus.IN_PROGRESS.value]),
+                "blocked_tasks": len([task for task in tasks if task.status == TaskStatus.BLOCKED.value]),
+            },
+        }
 
     # -------------------------
     # Task
@@ -423,6 +542,47 @@ class Repository:
         self.db.commit()
         self.db.refresh(item)
         return model_to_dict(item)
+
+    def list_worklogs(
+        self,
+        *,
+        project_id: str | None = None,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        action_type: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> dict:
+        query = (
+            select(Worklog, Task, Agent)
+            .join(Task, Worklog.task_id == Task.id)
+            .join(Agent, Worklog.agent_id == Agent.id)
+        )
+        if project_id:
+            query = query.where(Task.project_id == project_id)
+        if task_id:
+            query = query.where(Worklog.task_id == task_id)
+        if agent_id:
+            query = query.where(Worklog.agent_id == agent_id)
+        if action_type:
+            query = query.where(Worklog.action_type == action_type)
+
+        rows = self.db.execute(query.order_by(desc(Worklog.timestamp)).offset(offset).limit(limit)).all()
+        count = self.db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+        items = []
+        for worklog, task, agent in rows:
+            items.append(
+                {
+                    **model_to_dict(worklog),
+                    "project_id": task.project_id,
+                    "task_title": task.title,
+                    "task_status": task.status,
+                    "agent_name": agent.name,
+                    "agent_role": agent.role,
+                }
+            )
+        return {"items": items, "count": int(count)}
 
     def create_handover(self, payload: HandoverCreate) -> dict:
         item = Handover(

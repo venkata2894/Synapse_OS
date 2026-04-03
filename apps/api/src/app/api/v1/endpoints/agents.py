@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.v1.endpoints.event_utils import emit_project_event
 from app.core.auth import Actor, get_current_actor
 from app.core.config import settings
 from app.schemas.agent import AgentCreate, AgentStatusUpdate, AgentUpdate
@@ -30,7 +31,9 @@ def create_agent_endpoint(
     repo: Repository = Depends(get_repository),
 ) -> dict:
     _ = actor
-    return repo.create_agent(payload)
+    created = repo.create_agent(payload)
+    emit_project_event(repo, project_id=created.get("project_id"), payload={"agent": created}, event_type="agent.created")
+    return created
 
 
 @router.patch("/{agent_id}")
@@ -44,6 +47,7 @@ def update_agent_endpoint(
     updated = repo.update_agent(agent_id, payload)
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    emit_project_event(repo, project_id=updated.get("project_id"), payload={"agent": updated}, event_type="agent.updated")
     return updated
 
 
@@ -58,4 +62,5 @@ def update_agent_status_endpoint(
     updated = repo.update_agent_status(agent_id, payload)
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    emit_project_event(repo, project_id=updated.get("project_id"), payload={"agent": updated}, event_type="agent.updated")
     return updated

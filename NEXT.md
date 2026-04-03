@@ -16,12 +16,15 @@ Production-grade foundation and Wave 2 UX hardening are complete; OpenAI tester-
 10. Revalidated current pass with `pytest` (`14 passed`) and `next build` (web build successful).
 11. Added `apps/tester` OpenAI Agents SDK UAT harness with Playwright browser tools, agent-tool/MCP checks, JSON+Markdown report output, and root `pnpm qa:uat*` runners.
 12. Enabled true local tester auth path across Next.js layout and middleware so browser UAT can run without live Clerk sign-in.
+13. Added a new project-scoped `Operations` console with staffing flows, project agent attach/detach/create, contextual controls, and structured worklog capture.
+14. Extended backend with project staffing read models, nested project-agent endpoints, filtered worklog listing, and SSE emission for agent/worklog mutations.
+15. Reused a shared quick-log composer in both `/operations` and `/tasks`, and expanded Tool Console presets for `register_agent`, `append_worklog`, and `fetch_task_context`.
 
 ## Immediate Queue
-1. Run the new tester harness against a live local stack once `OPENAI_API_KEY`, `SENTIENTOPS_AGENT_API_KEY`, API, and web services are configured.
+1. Run the updated tester harness against a live local stack and capture first-pass findings for the new `/operations` workflow.
 2. Complete the outbox worker follow-through for evaluator and memory jobs so UAT findings stop flagging queue-only behavior.
-3. Complete remaining Kanban ergonomics (multi-select bulk transitions, keyboard shortcuts, and lane-level filtering/search).
-4. Expand SSE coverage beyond task transitions (project/agent/evaluation mutations) and define degraded-mode UX copy.
+3. Expand the operations console with direct handover creation and richer task-context actions if agent feedback shows the current flow still drops to raw tools.
+4. Complete remaining Kanban ergonomics (multi-select bulk transitions, keyboard shortcuts, and lane-level filtering/search).
 5. Add OpenAPI-to-TypeScript contract generation and CI checks (`pytest`, contracts build, web build).
 6. Add end-to-end happy-path flow tests with real auth/session wiring and feed tester artifacts into CI.
 

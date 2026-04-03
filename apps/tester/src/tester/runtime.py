@@ -952,6 +952,7 @@ class UATRuntime:
         checks = [
             {"route": "/", "text": "Multi-Agent Operations Dashboard", "label": "dashboard"},
             {"route": "/projects", "text": "Project Overview", "label": "projects"},
+            {"route": "/operations", "text": "Manager and Agent Control Surface", "label": "operations"},
             {"route": "/tasks", "text": "Kanban Workflow Console", "label": "tasks"},
             {"route": "/agents", "text": "Performance and Contribution", "label": "agents"},
             {"route": "/evaluations", "text": "Scorecards and Audit Visibility", "label": "evaluations"},

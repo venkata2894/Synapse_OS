@@ -41,6 +41,31 @@ export interface AgentContract {
   updated_at: string;
 }
 
+export interface ProjectStaffingAgent extends AgentContract {
+  assigned_task_count: number;
+  completed_task_count: number;
+  worklog_count: number;
+  average_score: number | null;
+  is_project_manager: boolean;
+}
+
+export interface ProjectStaffingSummary {
+  project: ProjectContract;
+  manager: ProjectStaffingAgent | null;
+  workers: ProjectStaffingAgent[];
+  evaluators: ProjectStaffingAgent[];
+  other_agents: ProjectStaffingAgent[];
+  attachable_agents: ProjectStaffingAgent[];
+  counters: {
+    total_agents: number;
+    active_agents: number;
+    workers: number;
+    evaluators: number;
+    tasks_in_progress: number;
+    blocked_tasks: number;
+  };
+}
+
 export interface TaskContract {
   id: string;
   project_id: string;
@@ -188,6 +213,28 @@ export interface TaskTransitionResponse {
   evaluation_queued: boolean;
 }
 
+export interface WorklogEntry {
+  id: string;
+  task_id: string;
+  project_id: string;
+  task_title: string;
+  task_status: string;
+  agent_id: string;
+  agent_name: string;
+  agent_role: string;
+  action_type: string;
+  summary: string;
+  detailed_log: string;
+  artifacts: string[];
+  confidence: number;
+  timestamp: string;
+}
+
+export interface WorklogListResponse {
+  items: WorklogEntry[];
+  count: number;
+}
+
 export interface ProcessTemplate {
   name: string;
   workflow_stages: string[];
@@ -212,6 +259,13 @@ export interface AgentToolManifest {
   version: "v1";
   tool_count: number;
   tools: AgentToolDefinition[];
+}
+
+export interface AgentActionPreset {
+  id: string;
+  tool: string;
+  label: string;
+  description: string;
 }
 
 export interface AgentToolCallEnvelope {

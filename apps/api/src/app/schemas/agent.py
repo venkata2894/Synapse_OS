@@ -23,3 +23,14 @@ class AgentUpdate(BaseModel):
 class AgentStatusUpdate(BaseModel):
     status: AgentStatus
 
+
+class ProjectAgentCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+    role: AgentRole
+    type: AgentType = AgentType.PROJECT_SIDE
+    capabilities: list[str] = Field(default_factory=list)
+    status: AgentStatus = AgentStatus.ACTIVE
+
+
+class AgentAttachRequest(BaseModel):
+    agent_id: str = Field(min_length=1)

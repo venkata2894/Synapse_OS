@@ -5,10 +5,12 @@ import { TASK_STATUSES } from "@sentientops/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { QueryState } from "@/components/query-state";
+import { WorklogComposer } from "@/components/worklog-composer";
 import { useActor } from "@/hooks/use-actor";
 import { usePollingQuery } from "@/hooks/use-polling-query";
 import { useResilientEventStream } from "@/hooks/use-resilient-event-stream";
 import {
+  appendWorklog,
   getBoard,
   getDefaultProcessTemplate,
   getTaskTimeline,
@@ -184,6 +186,12 @@ export default function TasksPage() {
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
   );
 
+  const projectAgentsQuery = usePollingQuery(
+    () => listAgents({ actorId: actor.actorId }, { projectId: selectedProjectId, limit: 200 }),
+    [actor.actorId, selectedProjectId],
+    { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
+  );
+
   const board = optimisticBoard ?? boardQuery.data ?? emptyBoard;
   const orderedLanes = useMemo(() => sortLanes(board.lanes), [board.lanes]);
 
@@ -291,6 +299,7 @@ export default function TasksPage() {
   const evaluations = timelineQuery.data?.evaluations ?? [];
   const memoryEntries = (timelineQuery.data?.memory ?? []) as Array<Record<string, unknown>>;
   const worklogs = (timelineQuery.data?.worklogs ?? []) as Array<Record<string, unknown>>;
+  const projectAgents = projectAgentsQuery.data?.items ?? [];
   const latestEvaluation = evaluations[0] ?? null;
 
   const dependencyIds = useMemo(() => {
@@ -818,6 +827,26 @@ export default function TasksPage() {
                   <p className="mt-2 text-xs text-slate-600">No memory entries linked to this task.</p>
                 )}
               </div>
+
+              <WorklogComposer
+                title="Task Quick Log"
+                tasks={timelineQuery.data?.task ? [timelineQuery.data.task] : []}
+                agents={projectAgents}
+                initialTaskId={selectedTask.id}
+                initialAgentId={selectedTask.assigned_to ?? projectAgents[0]?.id}
+                disabledReason={
+                  selectedTask
+                    ? projectAgents.length
+                      ? null
+                      : "No project agents are attached to this task's project."
+                    : "Select a task before logging work."
+                }
+                submitLabel="Append to Timeline"
+                onSubmit={async (payload) => {
+                  await appendWorklog({ actorId: actor.actorId }, payload);
+                  await timelineQuery.refresh();
+                }}
+              />
 
               <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Worklog Activity</p>

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.v1.endpoints.event_utils import emit_project_event
 from app.core.auth import Actor, get_current_actor
 from app.core.config import settings
+from app.schemas.agent import AgentAttachRequest, AgentCreate, ProjectAgentCreate
 from app.schemas.project import ManagerAssignment, ProjectCreate, ProjectUpdate
 from app.services.policies import PolicyError, ensure_single_manager
 from app.services.repository import Repository, get_repository
@@ -32,6 +34,19 @@ def create_project_endpoint(
     return repo.create_project(payload)
 
 
+@router.get("/{project_id}/staffing")
+def get_project_staffing(
+    project_id: str,
+    actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
+) -> dict:
+    _ = actor
+    staffing = repo.get_project_staffing(project_id)
+    if not staffing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
+    return staffing
+
+
 @router.get("/{project_id}")
 def get_project_endpoint(
     project_id: str,
@@ -43,6 +58,68 @@ def get_project_endpoint(
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
     return project
+
+
+@router.post("/{project_id}/agents")
+def create_project_agent_endpoint(
+    project_id: str,
+    payload: ProjectAgentCreate,
+    actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
+) -> dict:
+    _ = actor
+    try:
+        created = repo.create_project_agent(
+            project_id,
+            AgentCreate(
+                name=payload.name,
+                role=payload.role,
+                type=payload.type,
+                project_id=project_id,
+                capabilities=payload.capabilities,
+                status=payload.status,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    emit_project_event(repo, project_id=project_id, payload={"agent": created}, event_type="agent.created")
+    return created
+
+
+@router.post("/{project_id}/agents/attach")
+def attach_agent_endpoint(
+    project_id: str,
+    payload: AgentAttachRequest,
+    actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
+) -> dict:
+    _ = actor
+    try:
+        updated = repo.attach_agent_to_project(project_id, payload.agent_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = status.HTTP_404_NOT_FOUND if "not found" in detail else status.HTTP_409_CONFLICT
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    emit_project_event(repo, project_id=project_id, payload={"agent": updated}, event_type="agent.attached")
+    return updated
+
+
+@router.post("/{project_id}/agents/{agent_id}/detach")
+def detach_agent_endpoint(
+    project_id: str,
+    agent_id: str,
+    actor: Actor = Depends(get_current_actor),
+    repo: Repository = Depends(get_repository),
+) -> dict:
+    _ = actor
+    try:
+        result = repo.detach_agent_from_project(project_id, agent_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = status.HTTP_404_NOT_FOUND if "not found" in detail else status.HTTP_409_CONFLICT
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    emit_project_event(repo, project_id=project_id, payload=result, event_type="agent.detached")
+    return result
 
 
 @router.patch("/{project_id}")
@@ -90,6 +167,12 @@ def assign_manager(
     updated = repo.assign_manager(project_id, payload.manager_agent_id)
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
+    emit_project_event(
+        repo,
+        project_id=project_id,
+        payload={"project": updated, "manager_agent_id": payload.manager_agent_id},
+        event_type="project.manager_assigned",
+    )
     return updated
 
 
