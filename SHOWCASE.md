@@ -10,12 +10,12 @@ I am building **Synapse_OS**, a project-centric operating system for multi-agent
 - Memory that persists beyond LLM context windows.
 - Structured handovers instead of free-form logs.
 - Independent evaluator layer with score history and auditability.
+- A dedicated operations console where managers can staff a project and agents can log work in context.
 
 ## Current Build Stage
-- Foundation scaffold completed.
-- FastAPI + Next.js monorepo in place.
-- Core policy guardrails and API surface established.
+- Production-shaped platform foundation completed.
+- FastAPI + Next.js monorepo in place with strict workflow engine, SSE-backed task surfaces, and OpenAI tester harness.
+- New project operations console shipped for staffing, activity visibility, and structured logging.
 
 ## Next Milestone
-- Deliver first vertical slice with real persistence and live dashboard data.
-
+- Use tester-agent UAT on the operations workflow, then deepen handover/evaluation automation and reliability.

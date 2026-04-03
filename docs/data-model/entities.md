@@ -14,3 +14,8 @@
 - Completion transition triggers evaluation queue entry.
 - Owner score overrides must include reason and immutable audit record.
 
+## Current Read Models
+- `BoardSnapshot`: project Kanban lane/counter view
+- `TaskTimelineResponse`: task history across worklogs, handovers, transitions, evaluations, and memory
+- `ProjectStaffingSummary`: project-scoped roster, manager slot, attachable agents, and staffing counters
+- `WorklogListResponse`: filtered project/task/agent activity feed

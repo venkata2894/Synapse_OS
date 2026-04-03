@@ -73,6 +73,15 @@ Every run writes:
 - `reports/uat/<timestamp>-<run_id>.md`
 - `reports/uat/artifacts/<run_id>/...` for screenshots
 
+## Current Browser Coverage
+- `/`
+- `/projects`
+- `/operations`
+- `/tasks`
+- `/agents`
+- `/evaluations`
+- `/tools`
+
 ## Safety Rules
 - The harness only mutates QA-tagged projects it creates for the current `qa_run_id`.
 - Non-QA projects are not modified.

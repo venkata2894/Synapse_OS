@@ -26,7 +26,7 @@ Synapse_OS addresses this with structured workflows, persistent memory, and eval
 
 ## Current Scope
 - Production-shaped monorepo for `FastAPI` backend + `Next.js` frontend.
-- Agent-first workflow engine with Kanban board, task inspector, evaluations, and tool console.
+- Agent-first workflow engine with Kanban board, task inspector, evaluations, tool console, and a dedicated operations console.
 - Strong policy guardrails for V1 operating rules.
 - Memory architecture with raw vs curated promotion model.
 - OpenAI-based tester agents for realistic UAT against the live local stack.
@@ -36,7 +36,7 @@ Synapse_OS addresses this with structured workflows, persistent memory, and eval
 
 ```mermaid
 flowchart LR
-    O[Owner / Supervisor] --> W[Web Dashboard<br/>Next.js + Tailwind + Clerk]
+    O[Owner / Supervisor] --> W[Web Dashboard + Operations Console<br/>Next.js + Tailwind + Clerk]
     W --> A[API Layer<br/>FastAPI /api/v1]
     A --> P[(PostgreSQL)]
     A --> Q[(Qdrant)]
@@ -74,13 +74,17 @@ memory/         # Decisions, handoffs, runbooks, research, changelog
 - Side states:
   `blocked`, `reopened`
 - Agent-first UI:
-  Dashboard, Projects, Tasks, Agents, Evaluations, Tool Console
+  Dashboard, Projects, Operations, Tasks, Agents, Evaluations, Tool Console
+- Project operations console:
+  project-scoped staffing, manager-slot assignment, project agent attach/detach/create, recent activity feed
+- Seamless structured logging:
+  shared quick-log composer reused in both project operations and task inspection flows
 - Realtime foundation:
-  SSE stream + polling fallback for board surfaces
+  SSE stream + polling fallback for board, staffing, and worklog activity surfaces
 - Auth modes:
   Clerk for app users, agent API key for `/agent-tools`, local tester auth for UAT
 - Testing:
-  OpenAI tester agents simulate realistic project leads and workers, exercise APIs/MCP/UI, and produce reports
+  OpenAI tester agents simulate realistic project leads and workers, exercise APIs/MCP/UI including `/operations`, and produce reports
 
 ## Quickstart (Windows / PowerShell)
 ```powershell
@@ -101,10 +105,10 @@ DATABASE_URL=sqlite:///./sentientops.db
 ## API Surface
 Namespace: `/api/v1`
 
-- `projects`: create/update/archive + manager designation
-- `agents`: register/update/status
+- `projects`: create/update/archive + manager designation + project staffing read model
+- `agents`: register/update/status + project attach/detach flows
 - `tasks`: create/assign/claim/transition/status/dependencies
-- `worklogs`: append structured entries
+- `worklogs`: append structured entries + filtered project/task/agent activity reads
 - `handovers`: create + timeline retrieval
 - `memory`: fetch/search/promote
 - `evaluations`: request/submit/owner override (audited)
@@ -167,14 +171,14 @@ curl -X POST http://localhost:8000/api/v1/agent-tools/create_project \
 - [Showcase Notes](./SHOWCASE.md)
 
 ## Validation
-- Backend tests: `14 passed`
+- Backend tests: `15 passed`
 - Web build: production build passes locally
 - UAT harness: OpenAI tester agents generate Markdown + JSON reports under `reports/uat/`
 
 ## Build Notes
-- Clerk auth is strict for application routes (`/`, `/projects`, `/tasks`, `/agents`, `/evaluations`, `/tools`).
+- Clerk auth is strict for application routes (`/`, `/projects`, `/operations`, `/tasks`, `/agents`, `/evaluations`, `/tools`).
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` must be configured for runtime access.
-- Frontend includes a full operator UI: Dashboard, Projects, Tasks (Kanban + Inspector), Agents, Evaluations, Tool Console.
+- Frontend includes a full operator UI: Dashboard, Projects, Operations, Tasks (Kanban + Inspector), Agents, Evaluations, Tool Console.
 
 ## OpenAI Tester Agents
 - New tester harness lives in `apps/tester` and uses the OpenAI Agents SDK plus Playwright for UAT simulation.
@@ -187,6 +191,7 @@ curl -X POST http://localhost:8000/api/v1/agent-tools/create_project \
 - Local browser UAT is designed to run with `SENTIENTOPS_TESTER_AUTH_MODE=local_bypass` in `apps/web/.env.local`.
 
 ## Current Focus
+- Gathering first-pass tester feedback for the new operations console and staffing workflow
 - Hardening the evaluator queue processor and worker automation
 - Improving browser-UAT reliability and agent ergonomics
 - Expanding SSE coverage and tightening workflow interaction polish

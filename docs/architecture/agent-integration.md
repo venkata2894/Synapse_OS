@@ -30,6 +30,16 @@ Supported tools:
 - `fetch_task_context`
 - `request_evaluation`
 
+## Human + Agent Interaction Surfaces
+- `/operations` is the primary project-scoped interaction page for staffing and structured work capture.
+- `/tasks` remains the detailed execution surface where agents can inspect context and append quick logs.
+- `/tools` stays available for raw tool access, debugging, and advanced agent orchestration flows.
+
+## Current Agent Workflow Bias
+- Prefer explicit tool/action invocations over conversational ambiguity.
+- Prefer structured worklogs over free-form narrative when updating task progress.
+- Prefer project-scoped staffing and capability visibility before task mutation.
+
 ## Idempotency
 Use `Idempotency-Key` header on tool calls to make retries safe from agent orchestrators.
 
@@ -48,4 +58,3 @@ Run local MCP stdio server:
 - Keep real agent keys in secret storage, not in repository.
 - Rotate keys regularly and scope keys by environment.
 - For production, add persistent credential storage and revocation records.
-
