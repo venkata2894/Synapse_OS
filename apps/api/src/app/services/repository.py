@@ -818,11 +818,22 @@ class Repository:
             "memory": [model_to_dict(item) for item in memory],
         }
 
-    def get_dashboard_summary(self) -> dict:
-        projects = self.db.scalars(select(Project)).all()
-        tasks = self.db.scalars(select(Task)).all()
-        evaluations = self.db.scalars(select(Evaluation)).all()
-        handovers = self.db.scalars(select(Handover)).all()
+    def get_dashboard_summary(self, *, project_id: str | None = None) -> dict:
+        projects_query = select(Project)
+        tasks_query = select(Task)
+        evaluations_query = select(Evaluation)
+        handovers_query = select(Handover)
+
+        if project_id:
+            projects_query = projects_query.where(Project.id == project_id)
+            tasks_query = tasks_query.where(Task.project_id == project_id)
+            evaluations_query = evaluations_query.where(Evaluation.project_id == project_id)
+            handovers_query = handovers_query.where(Handover.project_id == project_id)
+
+        projects = self.db.scalars(projects_query).all()
+        tasks = self.db.scalars(tasks_query).all()
+        evaluations = self.db.scalars(evaluations_query).all()
+        handovers = self.db.scalars(handovers_query).all()
 
         blocked_tasks = [task for task in tasks if task.status == TaskStatus.BLOCKED.value]
         in_progress_tasks = [task for task in tasks if task.status == TaskStatus.IN_PROGRESS.value]

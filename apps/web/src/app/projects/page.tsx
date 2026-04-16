@@ -51,9 +51,10 @@ export default function ProjectsPage() {
   }, [tasksQuery.data?.items]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <aside className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Project Registry</p>
+    <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      {/* Sidebar */}
+      <aside className="surface p-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">Project Registry</p>
         <QueryState
           isLoading={projectsQuery.isLoading}
           error={projectsQuery.error}
@@ -66,32 +67,33 @@ export default function ProjectsPage() {
               type="button"
               onClick={() => setSelectedProjectId(project.id)}
               className={[
-                "w-full rounded-xl border px-3 py-3 text-left transition",
+                "w-full rounded-xl border px-3 py-3 text-left transition-all duration-200",
                 project.id === selectedProjectId
-                  ? "border-teal-300 bg-teal-50 text-teal-700"
-                  : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                  ? "surface-inset glow-signal text-signal"
+                  : "border-edge bg-canvas-surface text-ink-secondary hover:border-edge-bright hover:text-ink"
               ].join(" ")}
             >
               <p className="text-sm font-medium">{project.name}</p>
-              <p className="mt-1 text-xs capitalize text-slate-500">{project.status}</p>
+              <p className="mt-1 font-mono text-[10px] capitalize text-ink-tertiary">{project.status}</p>
             </button>
           ))}
           {!projectsQuery.data?.items.length ? (
-            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            <p className="surface-inset rounded-lg px-3 py-3 text-sm text-ink-tertiary">
               No projects available yet.
             </p>
           ) : null}
         </div>
       </aside>
 
+      {/* Main content */}
       <section className="space-y-4">
-        <article className="panel p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Project Overview</p>
-          <h3 className="mt-1 text-2xl font-semibold text-slate-900">{selectedProject?.name ?? "Select a project"}</h3>
-          <p className="mt-2 text-sm text-slate-700">{selectedProject?.objective ?? "No project selected."}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
+        <article className="surface p-5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">Project Overview</p>
+          <h3 className="mt-1 font-display text-2xl font-bold text-ink">{selectedProject?.name ?? "Select a project"}</h3>
+          <p className="mt-2 text-sm text-ink-secondary">{selectedProject?.objective ?? "No project selected."}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             {(selectedProject?.tags ?? []).map((tag) => (
-              <span key={tag} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+              <span key={tag} className="rounded-full border border-edge bg-canvas-surface px-3 py-1 font-mono text-[10px] text-ink-tertiary">
                 {tag}
               </span>
             ))}
@@ -99,21 +101,28 @@ export default function ProjectsPage() {
         </article>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <article className="panel p-4">
-            <p className="text-sm font-semibold text-slate-900">Task Board Summary</p>
+          {/* Task board summary */}
+          <article className="surface p-5">
+            <p className="font-display text-sm font-semibold text-ink">Task Board Summary</p>
             <QueryState isLoading={tasksQuery.isLoading} error={tasksQuery.error} lastUpdatedAt={tasksQuery.lastUpdatedAt} />
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              {Object.entries(TASK_STATUS_LABELS).map(([status, label]) => (
-                <div key={status} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-xs text-slate-500">{label}</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-900">{statusCounts[status] ?? 0}</p>
-                </div>
-              ))}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {Object.entries(TASK_STATUS_LABELS).map(([status, label]) => {
+                const count = statusCounts[status] ?? 0;
+                return (
+                  <div key={status} className="surface-inset rounded-lg px-3 py-2">
+                    <p className="font-mono text-[10px] text-ink-tertiary">{label}</p>
+                    <p className={`mt-1 font-display text-lg font-bold tabular-nums ${count > 0 ? "text-ink" : "text-ink-ghost"}`}>
+                      {count}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </article>
 
-          <article className="panel p-4">
-            <p className="text-sm font-semibold text-slate-900">Evaluation Quick Pane</p>
+          {/* Evaluation pane */}
+          <article className="surface p-5">
+            <p className="font-display text-sm font-semibold text-ink">Evaluation Quick Pane</p>
             <QueryState
               isLoading={evaluationsQuery.isLoading}
               error={evaluationsQuery.error}
@@ -121,13 +130,16 @@ export default function ProjectsPage() {
             />
             <div className="mt-3 space-y-2">
               {(evaluationsQuery.data?.items ?? []).slice(0, 6).map((evaluation) => (
-                <div key={evaluation.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-sm text-slate-900">Task {evaluation.task_id}</p>
-                  <p className="text-xs text-slate-600">Agent {evaluation.agent_id} | Quality {evaluation.score_quality}/10</p>
+                <div key={evaluation.id} className="surface-inset rounded-lg px-3 py-2">
+                  <p className="text-sm text-ink">Task {evaluation.task_id}</p>
+                  <p className="text-xs text-ink-tertiary">
+                    Agent {evaluation.agent_id} | Quality{" "}
+                    <span className="font-mono text-signal">{evaluation.score_quality}/10</span>
+                  </p>
                 </div>
               ))}
               {!evaluationsQuery.data?.items.length ? (
-                <p className="text-sm text-slate-500">No evaluations recorded for this project yet.</p>
+                <p className="text-sm text-ink-tertiary">No evaluations recorded for this project yet.</p>
               ) : null}
             </div>
           </article>
@@ -136,5 +148,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
-

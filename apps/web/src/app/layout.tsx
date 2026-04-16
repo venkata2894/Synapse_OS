@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { ClerkProvider, UserButton } from "@clerk/nextjs";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { Bricolage_Grotesque, DM_Mono, DM_Sans } from "next/font/google";
 
 import { ClerkActorProvider, LocalTesterActorProvider } from "@/components/actor-provider";
 import { AppShell } from "@/components/app-shell";
 
 import "./globals.css";
 
-const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono" });
+const display = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-display" });
+const body = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-body" });
+const mono = DM_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: "SentientOps V1",
@@ -28,13 +29,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   if (localTesterAuth) {
     return (
-      <html lang="en">
-        <body className={`${display.variable} ${mono.variable}`}>
+      <html lang="en" className="light">
+        <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           <LocalTesterActorProvider>
             <AppShell
               headerActions={
-                <span className="rounded-full border border-sky-300/90 bg-sky-50 px-3 py-1 text-xs text-sky-700">
-                  Local tester auth
+                <span className="flex items-center gap-2 rounded-full border border-signal/30 bg-signal-dim px-3 py-1 text-xs font-medium text-signal">
+                  <span className="live-dot" />
+                  Local Dev
                 </span>
               }
             >
@@ -48,11 +50,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <ClerkProvider publishableKey={publishableKey!}>
-      <html lang="en">
-        <body className={`${display.variable} ${mono.variable}`}>
+      <html lang="en" className="light">
+        <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           <ClerkActorProvider>
             <AppShell
-              headerActions={<UserButton appearance={{ elements: { userButtonAvatarBox: "ring-2 ring-slate-300/80" } }} />}
+              headerActions={<UserButton appearance={{ elements: { userButtonAvatarBox: "ring-2 ring-edge-bright" } }} />}
             >
               {children}
             </AppShell>

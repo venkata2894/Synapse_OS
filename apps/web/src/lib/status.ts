@@ -16,17 +16,17 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 export const TASK_STATUS_STYLES: Record<TaskStatus, string> = {
-  intake: "border-violet-200 bg-violet-50 text-violet-700",
-  backlog: "border-slate-200 bg-slate-100 text-slate-700",
-  ready: "border-blue-200 bg-blue-50 text-blue-700",
-  assigned: "border-cyan-200 bg-cyan-50 text-cyan-700",
-  in_progress: "border-teal-200 bg-teal-50 text-teal-700",
-  awaiting_handover: "border-indigo-200 bg-indigo-50 text-indigo-700",
-  under_review: "border-amber-200 bg-amber-50 text-amber-700",
-  evaluation: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-  blocked: "border-rose-200 bg-rose-50 text-rose-700",
-  completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  reopened: "border-orange-200 bg-orange-50 text-orange-700"
+  intake: "border-purple-500/30 bg-purple-500/10 text-purple-300",
+  backlog: "border-ink-ghost/60 bg-ink-ghost/10 text-ink-secondary",
+  ready: "border-info/30 bg-info-dim text-info",
+  assigned: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
+  in_progress: "border-signal/30 bg-signal-dim text-signal",
+  awaiting_handover: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300",
+  under_review: "border-warn/30 bg-warn-dim text-warn",
+  evaluation: "border-fuchsia-400/30 bg-fuchsia-400/10 text-fuchsia-300",
+  blocked: "border-danger/30 bg-danger-dim text-danger",
+  completed: "border-ok/30 bg-ok-dim text-ok",
+  reopened: "border-orange-400/30 bg-orange-400/10 text-orange-300"
 };
 
 export const TASK_STATUS_OPTIONS = TASK_STATUSES.map((status) => ({
