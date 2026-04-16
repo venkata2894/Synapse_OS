@@ -1,0 +1,58 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: Synapse OS
+      - heading "Agent Control Room" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Multi-agent orchestration
+    - navigation [ref=e9]:
+      - link "Dashboard" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=e11]
+        - generic [ref=e16]: Dashboard
+      - link "Projects" [ref=e17] [cursor=pointer]:
+        - /url: /projects
+        - img [ref=e18]
+        - generic [ref=e20]: Projects
+      - link "Operations" [ref=e21] [cursor=pointer]:
+        - /url: /operations
+        - img [ref=e22]
+        - generic [ref=e26]: Operations
+      - link "Tasks" [ref=e27] [cursor=pointer]:
+        - /url: /tasks
+        - img [ref=e28]
+        - generic [ref=e32]: Tasks
+      - link "Agents" [ref=e33] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e34]
+        - generic [ref=e37]: Agents
+      - link "Evaluations" [ref=e38] [cursor=pointer]:
+        - /url: /evaluations
+        - img [ref=e39]
+        - generic [ref=e41]: Evaluations
+      - link "Tool Console" [ref=e43] [cursor=pointer]:
+        - /url: /tools
+        - img [ref=e44]
+        - generic [ref=e47]: Tool Console
+  - generic [ref=e48]:
+    - banner [ref=e49]:
+      - generic [ref=e50]:
+        - paragraph [ref=e51]: Operational View
+        - heading "SentientOps V1" [level=2] [ref=e52]
+      - generic [ref=e53]:
+        - generic [ref=e54]: Polling
+        - generic [ref=e56]: Agent-first
+        - generic [ref=e57]: Local Dev
+    - generic [ref=e60]:
+      - article [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - paragraph [ref=e64]: Evaluator Layer
+            - heading "Scorecards and Audit Visibility" [level=3] [ref=e65]
+          - generic [ref=e66]:
+            - combobox [ref=e67]:
+              - option "All Projects" [selected]
+            - combobox [ref=e68]:
+              - option "All Agents" [selected]
+        - paragraph [ref=e70]: Syncing...
+      - article [ref=e72]:
+        - paragraph [ref=e73]: No evaluations available for selected filters.

@@ -1,0 +1,94 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: Synapse OS
+      - heading "Agent Control Room" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Multi-agent orchestration
+    - navigation [ref=e9]:
+      - link "Dashboard" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=e11]
+        - generic [ref=e16]: Dashboard
+      - link "Projects" [ref=e18] [cursor=pointer]:
+        - /url: /projects
+        - img [ref=e19]
+        - generic [ref=e21]: Projects
+      - link "Operations" [ref=e22] [cursor=pointer]:
+        - /url: /operations
+        - img [ref=e23]
+        - generic [ref=e27]: Operations
+      - link "Tasks" [ref=e28] [cursor=pointer]:
+        - /url: /tasks
+        - img [ref=e29]
+        - generic [ref=e33]: Tasks
+      - link "Agents" [ref=e34] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e35]
+        - generic [ref=e38]: Agents
+      - link "Evaluations" [ref=e39] [cursor=pointer]:
+        - /url: /evaluations
+        - img [ref=e40]
+        - generic [ref=e42]: Evaluations
+      - link "Tool Console" [ref=e43] [cursor=pointer]:
+        - /url: /tools
+        - img [ref=e44]
+        - generic [ref=e47]: Tool Console
+  - generic [ref=e48]:
+    - banner [ref=e49]:
+      - generic [ref=e50]:
+        - paragraph [ref=e51]: Operational View
+        - heading "SentientOps V1" [level=2] [ref=e52]
+      - generic [ref=e53]:
+        - generic [ref=e54]: Polling
+        - generic [ref=e56]: Agent-first
+        - generic [ref=e57]: Local Dev
+    - generic [ref=e60]:
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - paragraph [ref=e64]: Global Pulse
+            - heading "Multi-Agent Operations" [level=3] [ref=e65]
+          - generic [ref=e66]:
+            - link "Project Details" [ref=e67] [cursor=pointer]:
+              - /url: /projects
+            - link "Task Board" [ref=e68] [cursor=pointer]:
+              - /url: /tasks
+            - link "Open Tool Console" [ref=e69] [cursor=pointer]:
+              - /url: /tools
+        - paragraph [ref=e71]: Syncing...
+      - generic [ref=e73]:
+        - article [ref=e74]:
+          - paragraph [ref=e75]: Active Projects
+          - paragraph [ref=e76]: "0"
+        - article [ref=e77]:
+          - paragraph [ref=e78]: In Progress
+          - paragraph [ref=e79]: "0"
+        - article [ref=e80]:
+          - paragraph [ref=e81]: Blocked Tasks
+          - paragraph [ref=e82]: "0"
+        - article [ref=e83]:
+          - paragraph [ref=e84]: Handovers
+          - paragraph [ref=e85]: "0"
+        - article [ref=e86]:
+          - paragraph [ref=e87]: Low Score Alerts
+          - paragraph [ref=e88]: "0"
+      - generic [ref=e89]:
+        - article [ref=e90]:
+          - heading "Active Project Snapshots" [level=4] [ref=e91]
+          - table [ref=e93]:
+            - rowgroup [ref=e94]:
+              - row "Project Status Tasks Blocked Evals" [ref=e95]:
+                - columnheader "Project" [ref=e96]
+                - columnheader "Status" [ref=e97]
+                - columnheader "Tasks" [ref=e98]
+                - columnheader "Blocked" [ref=e99]
+                - columnheader "Evals" [ref=e100]
+            - rowgroup [ref=e101]:
+              - row "No projects yet. Use Tool Console to create one." [ref=e102]:
+                - cell "No projects yet. Use Tool Console to create one." [ref=e103]
+        - article [ref=e104]:
+          - heading "Alerts" [level=4] [ref=e105]
+          - paragraph [ref=e107]: No critical alerts right now.
+      - generic [ref=e108]:
+        - heading "Recent Evaluations" [level=4] [ref=e109]
+        - paragraph [ref=e111]: No evaluations recorded yet.

@@ -1,0 +1,189 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: Synapse OS
+      - heading "Agent Control Room" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Multi-agent orchestration
+    - navigation [ref=e9]:
+      - link "Dashboard" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=e11]
+        - generic [ref=e16]: Dashboard
+      - link "Projects" [ref=e17] [cursor=pointer]:
+        - /url: /projects
+        - img [ref=e18]
+        - generic [ref=e20]: Projects
+      - link "Operations" [ref=e21] [cursor=pointer]:
+        - /url: /operations
+        - img [ref=e22]
+        - generic [ref=e26]: Operations
+      - link "Tasks" [ref=e28] [cursor=pointer]:
+        - /url: /tasks
+        - img [ref=e29]
+        - generic [ref=e33]: Tasks
+      - link "Agents" [ref=e34] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e35]
+        - generic [ref=e38]: Agents
+      - link "Evaluations" [ref=e39] [cursor=pointer]:
+        - /url: /evaluations
+        - img [ref=e40]
+        - generic [ref=e42]: Evaluations
+      - link "Tool Console" [ref=e43] [cursor=pointer]:
+        - /url: /tools
+        - img [ref=e44]
+        - generic [ref=e47]: Tool Console
+  - generic [ref=e48]:
+    - banner [ref=e49]:
+      - generic [ref=e50]:
+        - paragraph [ref=e51]: Operational View
+        - heading "SentientOps V1" [level=2] [ref=e52]
+      - generic [ref=e53]:
+        - generic [ref=e54]: Polling
+        - generic [ref=e56]: Agent-first
+        - generic [ref=e57]: Local Dev
+    - generic [ref=e60]:
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - paragraph [ref=e64]: Project Operations
+            - heading "Manager and Agent Control Surface" [level=3] [ref=e65]
+            - paragraph [ref=e66]: Staff a project, keep agents attached to the correct workspace, and capture execution logs.
+          - generic [ref=e67]:
+            - combobox [ref=e68]:
+              - option "Select project" [selected]
+            - generic [ref=e69]: Stream idle
+            - button "Refresh" [ref=e71] [cursor=pointer]
+        - paragraph [ref=e73]: Synced
+      - generic [ref=e75]:
+        - complementary [ref=e76]:
+          - paragraph [ref=e77]: Project Roster
+          - generic [ref=e78]:
+            - generic [ref=e79]: Total 0
+            - generic [ref=e80]: Active 0
+            - generic [ref=e81]: Blocked 0
+          - generic [ref=e82]:
+            - generic [ref=e83]:
+              - generic [ref=e84]:
+                - generic [ref=e85]:
+                  - paragraph [ref=e86]: Manager Slot
+                  - paragraph [ref=e87]: No manager assigned
+                - generic [ref=e88]: empty
+              - paragraph [ref=e89]: Create or attach a manager-role agent.
+              - generic [ref=e90]:
+                - combobox [ref=e91]:
+                  - option "Select manager" [selected]
+                - button "Assign" [disabled] [ref=e92]
+            - generic [ref=e93]:
+              - paragraph [ref=e94]: Workers
+              - paragraph [ref=e96]: No workers attached.
+            - generic [ref=e97]:
+              - paragraph [ref=e98]: Evaluators
+              - paragraph [ref=e100]: No evaluators attached.
+            - generic [ref=e101]:
+              - paragraph [ref=e102]: Other Agents
+              - paragraph [ref=e104]: No other agents attached.
+        - generic [ref=e105]:
+          - article [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - paragraph [ref=e109]: Create Project Agent
+                - generic [ref=e110]:
+                  - textbox "Agent name" [ref=e111]
+                  - generic [ref=e112]:
+                    - combobox [ref=e113]:
+                      - option "worker" [selected]
+                      - option "manager"
+                      - option "evaluator"
+                    - combobox [ref=e114]:
+                      - option "project_side" [selected]
+                      - option "platform_side"
+                  - textbox "Capabilities, comma separated" [ref=e115]
+                  - combobox [ref=e116]:
+                    - option "active" [selected]
+                    - option "paused"
+                    - option "inactive"
+                  - button "Create Agent" [disabled] [ref=e117]
+              - generic [ref=e118]:
+                - paragraph [ref=e119]: Attach Existing Agent
+                - paragraph [ref=e120]: Attach from the global registry.
+                - generic [ref=e121]:
+                  - combobox [ref=e122]:
+                    - option "Select unattached agent" [selected]
+                  - button "Attach Agent" [disabled] [ref=e123]
+          - article [ref=e124]:
+            - generic [ref=e125]:
+              - generic:
+                - generic [ref=e126]:
+                  - paragraph: Interaction Console
+                  - generic:
+                    - combobox [ref=e127]:
+                      - option "Select task context" [selected]
+                    - button "Request Eval" [disabled] [ref=e128]
+                  - generic:
+                    - generic [ref=e129]:
+                      - paragraph: Task Status
+                      - paragraph: No task
+                    - generic [ref=e130]:
+                      - paragraph: Assigned Agent
+                      - paragraph: Unassigned
+                    - generic [ref=e131]:
+                      - paragraph: Recent Activity
+                      - paragraph: 0 logs
+                - generic [ref=e132]:
+                  - generic:
+                    - generic [ref=e133]:
+                      - paragraph [ref=e134]: Structured Logging
+                      - heading "Agent Worklog" [level=4] [ref=e135]
+                    - button "Add detail" [ref=e136] [cursor=pointer]
+                  - generic:
+                    - combobox [ref=e137]:
+                      - option "Select task" [selected]
+                    - combobox [ref=e138]:
+                      - option "Select agent" [selected]
+                    - generic [ref=e139]:
+                      - combobox [ref=e140]:
+                        - option "start"
+                        - option "progress" [selected]
+                        - option "decision"
+                        - option "issue"
+                        - option "output"
+                        - option "handover"
+                        - option "completion"
+                        - option "correction"
+                      - textbox "Short, useful summary" [ref=e141]
+                    - generic [ref=e142]:
+                      - paragraph [ref=e143]: "Task: Not selected"
+                      - paragraph [ref=e144]: "Agent: Not selected"
+                    - paragraph [ref=e145]: Select a project before writing logs.
+                    - button "Append Worklog" [disabled] [ref=e146]
+              - generic [ref=e147]:
+                - paragraph [ref=e148]: Recent Activity
+                - paragraph [ref=e150]: No worklogs yet.
+        - complementary [ref=e151]:
+          - paragraph [ref=e152]: Context Rail
+          - generic [ref=e153]:
+            - generic [ref=e154]:
+              - paragraph [ref=e155]: Select a task
+              - paragraph [ref=e156]: Task context will appear here.
+            - generic [ref=e157]:
+              - paragraph [ref=e158]: Policy Guardrails
+              - generic [ref=e159]:
+                - generic [ref=e160]: One manager per project
+                - generic [ref=e161]: Only assigned workers can claim tasks
+                - generic [ref=e162]: Completed tasks enter evaluation
+                - generic [ref=e163]: Overrides require owner reason and audit
+            - generic [ref=e164]:
+              - paragraph [ref=e165]: Status
+              - generic [ref=e166]:
+                - paragraph [ref=e167]: Select a project before writing logs.
+                - paragraph [ref=e168]: Manager slot empty. Create or attach a manager agent.
+            - generic [ref=e169]:
+              - paragraph [ref=e170]: Memory Snapshot
+              - paragraph [ref=e172]: No memory attached.
+            - generic [ref=e173]:
+              - paragraph [ref=e174]: Latest Evaluations
+              - paragraph [ref=e176]: No evaluations visible.
+            - generic [ref=e177]:
+              - paragraph [ref=e178]: Task Worklog Thread
+              - paragraph [ref=e180]: No task worklogs.

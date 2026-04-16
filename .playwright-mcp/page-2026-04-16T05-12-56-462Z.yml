@@ -1,0 +1,64 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: Synapse OS
+      - heading "Agent Control Room" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Multi-agent orchestration
+    - navigation [ref=e9]:
+      - link "Dashboard" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=e11]
+        - generic [ref=e16]: Dashboard
+      - link "Projects" [ref=e17] [cursor=pointer]:
+        - /url: /projects
+        - img [ref=e18]
+        - generic [ref=e20]: Projects
+      - link "Operations" [ref=e21] [cursor=pointer]:
+        - /url: /operations
+        - img [ref=e22]
+        - generic [ref=e26]: Operations
+      - link "Tasks" [ref=e27] [cursor=pointer]:
+        - /url: /tasks
+        - img [ref=e28]
+        - generic [ref=e32]: Tasks
+      - link "Agents" [ref=e34] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e35]
+        - generic [ref=e38]: Agents
+      - link "Evaluations" [ref=e39] [cursor=pointer]:
+        - /url: /evaluations
+        - img [ref=e40]
+        - generic [ref=e42]: Evaluations
+      - link "Tool Console" [ref=e43] [cursor=pointer]:
+        - /url: /tools
+        - img [ref=e44]
+        - generic [ref=e47]: Tool Console
+  - generic [ref=e48]:
+    - banner [ref=e49]:
+      - generic [ref=e50]:
+        - paragraph [ref=e51]: Operational View
+        - heading "SentientOps V1" [level=2] [ref=e52]
+      - generic [ref=e53]:
+        - generic [ref=e54]: Polling
+        - generic [ref=e56]: Agent-first
+        - generic [ref=e57]: Local Dev
+    - generic [ref=e60]:
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - paragraph [ref=e64]: Execution Board
+            - heading "Kanban Workflow Console" [level=3] [ref=e65]
+          - generic [ref=e66]:
+            - combobox [ref=e67]:
+              - option "Select Project" [selected]
+            - button "Refresh" [ref=e68] [cursor=pointer]
+        - paragraph [ref=e70]: Synced
+        - generic [ref=e72]:
+          - generic [ref=e73]: "Total: 0"
+          - generic [ref=e74]: "Blocked: 0"
+          - generic [ref=e75]: "In Progress: 0"
+          - generic [ref=e76]: "Stream: idle"
+          - button "Reconnect" [ref=e78] [cursor=pointer]
+      - complementary [ref=e82]:
+        - paragraph [ref=e83]: Task Inspector
+        - paragraph [ref=e84]: Select a task card to inspect details.
