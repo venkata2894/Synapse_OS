@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.18.0",
+  "engines": {
+    "node": ">=20.11",
+    "pnpm": ">=10.18"
+  },
   "scripts": {
     "dev": "pnpm -r --parallel dev",
     "dev:web": "pnpm --filter @sentientops/web dev",
@@ -15,6 +19,7 @@
     "qa:uat:ux": "powershell -ExecutionPolicy Bypass -File ops/scripts/uat-run.ps1 --scenario ux_friction",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "typecheck": "pnpm --filter @sentientops/web run typecheck"
   }
 }
