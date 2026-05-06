@@ -1,7 +1,7 @@
 "use client";
 
 import type { AgentContract, TaskContract } from "@sentientops/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 const ACTION_OPTIONS = [
   "start",
@@ -52,6 +52,15 @@ export function WorklogComposer({
   presetActionType,
   onSubmit
 }: WorklogComposerProps) {
+  const fieldId = useId();
+  const taskFieldId = `${fieldId}-task`;
+  const agentFieldId = `${fieldId}-agent`;
+  const actionFieldId = `${fieldId}-action`;
+  const summaryFieldId = `${fieldId}-summary`;
+  const detailFieldId = `${fieldId}-detail`;
+  const artifactsFieldId = `${fieldId}-artifacts`;
+  const confidenceFieldId = `${fieldId}-confidence`;
+
   const [taskId, setTaskId] = useState(initialTaskId ?? "");
   const [agentId, setAgentId] = useState(initialAgentId ?? "");
   const [actionType, setActionType] = useState(presetActionType ?? "progress");
@@ -121,8 +130,9 @@ export function WorklogComposer({
       <div className="mt-5 grid gap-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Linked Task</label>
+            <label htmlFor={taskFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Linked Task</label>
             <select
+              id={taskFieldId}
               value={taskId}
               onChange={(event) => setTaskId(event.target.value)}
               className="w-full rounded-xl border border-edge bg-canvas-base px-3 py-2.5 text-xs text-ink outline-none transition focus:border-signal/50 focus:ring-2 focus:ring-signal/5"
@@ -137,8 +147,9 @@ export function WorklogComposer({
           </div>
 
           <div className="space-y-1.5">
-            <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Agent Actor</label>
+            <label htmlFor={agentFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Agent Actor</label>
             <select
+              id={agentFieldId}
               value={agentId}
               onChange={(event) => setAgentId(event.target.value)}
               className="w-full rounded-xl border border-edge bg-canvas-base px-3 py-2.5 text-xs text-ink outline-none transition focus:border-signal/50 focus:ring-2 focus:ring-signal/5"
@@ -155,8 +166,9 @@ export function WorklogComposer({
 
         <div className="grid gap-3 sm:grid-cols-[140px_minmax(0,1fr)]">
           <div className="space-y-1.5">
-            <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Signal Type</label>
+            <label htmlFor={actionFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Signal Type</label>
             <select
+              id={actionFieldId}
               value={actionType}
               onChange={(event) => setActionType(event.target.value)}
               className="w-full rounded-xl border border-edge bg-canvas-base px-3 py-2.5 text-xs font-bold text-signal outline-none transition focus:border-signal/50"
@@ -169,8 +181,9 @@ export function WorklogComposer({
             </select>
           </div>
           <div className="space-y-1.5">
-            <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Observation Summary</label>
+            <label htmlFor={summaryFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Observation Summary</label>
             <input
+              id={summaryFieldId}
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               placeholder="What was observed or accomplished?"
@@ -182,8 +195,9 @@ export function WorklogComposer({
         {showDetails ? (
           <div className="mt-2 space-y-4 animate-fade-up">
             <div className="space-y-1.5">
-              <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Detailed Analysis</label>
+              <label htmlFor={detailFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Detailed Analysis</label>
               <textarea
+                id={detailFieldId}
                 value={detailedLog}
                 onChange={(event) => setDetailedLog(event.target.value)}
                 placeholder="Deep context for human auditors and future agents..."
@@ -193,8 +207,9 @@ export function WorklogComposer({
 
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px] gap-4">
               <div className="space-y-1.5">
-                <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Artifact Registry</label>
+                <label htmlFor={artifactsFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Artifact Registry</label>
                 <input
+                  id={artifactsFieldId}
                   value={artifactsText}
                   onChange={(event) => setArtifactsText(event.target.value)}
                   placeholder="URL paths, comma separated"
@@ -203,16 +218,21 @@ export function WorklogComposer({
               </div>
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
-                  <label className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Confidence</label>
+                  <label htmlFor={confidenceFieldId} className="font-mono text-[9px] uppercase tracking-wider text-ink-ghost">Confidence</label>
                   <span className="font-mono text-[10px] font-bold text-signal">{(confidence * 100).toFixed(0)}%</span>
                 </div>
                 <input
+                  id={confidenceFieldId}
                   type="range"
                   min="0"
                   max="1"
                   step="0.05"
                   value={confidence}
                   onChange={(event) => setConfidence(Number(event.target.value))}
+                  aria-valuemin={0}
+                  aria-valuemax={1}
+                  aria-valuenow={confidence}
+                  aria-valuetext={`${(confidence * 100).toFixed(0)} percent`}
                   className="mt-2 w-full h-2 rounded-lg bg-slate-100 appearance-none cursor-pointer accent-signal"
                 />
               </div>
