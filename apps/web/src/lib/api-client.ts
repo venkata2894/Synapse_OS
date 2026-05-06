@@ -66,6 +66,27 @@ export async function getProject(actor: ActorContext, projectId: string): Promis
   });
 }
 
+export async function createProject(
+  actor: ActorContext,
+  payload: {
+    name: string;
+    description?: string;
+    objective?: string;
+    owner: string;
+    status?: string;
+    tags?: string[];
+  }
+): Promise<ProjectContract> {
+  return requestJson<ProjectContract>("/projects", {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getProjectStaffing(actor: ActorContext, projectId: string): Promise<ProjectStaffingSummary> {
   return requestJson<ProjectStaffingSummary>(`/projects/${projectId}/staffing`, {
     method: "GET",
