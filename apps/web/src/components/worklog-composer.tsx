@@ -24,6 +24,12 @@ type WorklogComposerProps = {
   initialAgentId?: string;
   disabledReason?: string | null;
   submitLabel?: string;
+  /**
+   * If provided, pre-selects this action_type and skips the
+   * sessionStorage-restored value. Used by the /tasks Activity tab to surface
+   * a one-click "log this transition" preset (defaults to "progress").
+   */
+  presetActionType?: string;
   onSubmit: (payload: {
     task_id: string;
     agent_id: string;
@@ -43,11 +49,12 @@ export function WorklogComposer({
   initialAgentId,
   disabledReason,
   submitLabel = "Log Work",
+  presetActionType,
   onSubmit
 }: WorklogComposerProps) {
   const [taskId, setTaskId] = useState(initialTaskId ?? "");
   const [agentId, setAgentId] = useState(initialAgentId ?? "");
-  const [actionType, setActionType] = useState("progress");
+  const [actionType, setActionType] = useState(presetActionType ?? "progress");
   const [summary, setSummary] = useState("");
   const [detailedLog, setDetailedLog] = useState("");
   const [artifactsText, setArtifactsText] = useState("");
@@ -58,12 +65,13 @@ export function WorklogComposer({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (presetActionType) return; // explicit preset wins
     if (typeof window === "undefined") return;
     const last = window.sessionStorage.getItem(LAST_ACTION_KEY);
     if (last && ACTION_OPTIONS.includes(last as (typeof ACTION_OPTIONS)[number])) {
       setActionType(last);
     }
-  }, []);
+  }, [presetActionType]);
 
   useEffect(() => {
     if (initialTaskId && tasks.some((task) => task.id === initialTaskId)) {

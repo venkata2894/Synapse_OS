@@ -1,11 +1,16 @@
 "use client";
 
-import type { BoardCard, BoardLane, BoardSnapshot, TaskStatus } from "@sentientops/contracts";
+import * as React from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import type {
+  BoardCard,
+  BoardSnapshot,
+  TaskStatus,
+} from "@sentientops/contracts";
 import { TASK_STATUSES } from "@sentientops/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 
-import { QueryState } from "@/components/query-state";
-import { WorklogComposer } from "@/components/worklog-composer";
+import { Button } from "@/components/ui/button";
 import { useActor } from "@/hooks/use-actor";
 import { usePollingQuery } from "@/hooks/use-polling-query";
 import { useResilientEventStream } from "@/hooks/use-resilient-event-stream";
@@ -16,112 +21,91 @@ import {
   getTaskTimeline,
   listAgents,
   listProjects,
+  listTasks,
   openProjectEventStream,
-  transitionTask
+  transitionTask,
 } from "@/lib/api-client";
-import { TASK_STATUS_LABELS, TASK_STATUS_STYLES } from "@/lib/status";
 
-const emptyBoard: BoardSnapshot = {
+import { BoardView } from "./components/board-view";
+import { BulkActionBar } from "./components/bulk-action-bar";
+import { ControlBar, type TasksView } from "./components/control-bar";
+import { ListView, type ListSortDir, type ListSortKey } from "./components/list-view";
+import { FALLBACK_TRANSITION_MATRIX } from "./components/stages";
+import { TaskInspector } from "./components/task-inspector";
+import { TimelineView } from "./components/timeline-view";
+
+const EMPTY_BOARD: BoardSnapshot = {
   project_id: "",
   project_name: "",
   generated_at: "",
   counters: { total_tasks: 0, blocked_tasks: 0, in_progress_tasks: 0 },
-  lanes: []
+  lanes: [],
 };
 
-const LANE_ORDER: TaskStatus[] = [
-  "intake", "backlog", "ready", "assigned", "in_progress",
-  "awaiting_handover", "under_review", "evaluation",
-  "blocked", "reopened", "completed"
-];
-
-const FALLBACK_TRANSITION_MATRIX: Record<TaskStatus, TaskStatus[]> = {
-  intake: ["ready", "blocked"],
-  backlog: ["ready", "blocked"],
-  ready: ["assigned", "blocked"],
-  assigned: ["in_progress", "blocked"],
-  in_progress: ["awaiting_handover", "under_review", "blocked"],
-  awaiting_handover: ["under_review", "blocked"],
-  under_review: ["evaluation", "reopened", "blocked"],
-  evaluation: ["completed", "reopened"],
-  blocked: ["ready", "assigned", "in_progress", "awaiting_handover", "under_review", "evaluation", "reopened"],
-  reopened: ["ready", "assigned", "in_progress"],
-  completed: ["reopened"]
-};
-
-type DragState = { taskId: string; fromStatus: TaskStatus } | null;
-type TransitionOptions = { reason?: string; blockerReason?: string; assignedTo?: string };
-
-function asTaskStatus(value: string): TaskStatus | null {
-  if ((TASK_STATUSES as readonly string[]).includes(value)) return value as TaskStatus;
+function asTaskStatus(value: string | null | undefined): TaskStatus | null {
+  if (!value) return null;
+  if ((TASK_STATUSES as readonly string[]).includes(value)) {
+    return value as TaskStatus;
+  }
   return null;
 }
 
-function formatDate(iso: string | undefined | null): string {
-  if (!iso) return "n/a";
-  const date = new Date(iso);
-  if (Number.isNaN(date.valueOf())) return "n/a";
-  return date.toLocaleString();
+function asView(value: string | null | undefined): TasksView {
+  if (value === "list" || value === "timeline") return value;
+  return "board";
 }
 
-function laneOrder(status: string): number {
-  const normalized = asTaskStatus(status);
-  if (!normalized) return 999;
-  return LANE_ORDER.indexOf(normalized);
-}
-
-function sortLanes(lanes: BoardLane[]): BoardLane[] {
-  return [...lanes].sort((a, b) => laneOrder(a.status) - laneOrder(b.status));
-}
-
-function cloneBoard(snapshot: BoardSnapshot): BoardSnapshot {
-  return {
-    ...snapshot,
-    counters: { ...snapshot.counters },
-    lanes: snapshot.lanes.map((lane) => ({ ...lane, cards: lane.cards.map((card) => ({ ...card })) }))
-  };
-}
-
-function recomputeBoardCounters(snapshot: BoardSnapshot): BoardSnapshot {
-  const cards = snapshot.lanes.flatMap((lane) => lane.cards);
-  for (const lane of snapshot.lanes) {
-    lane.count = lane.cards.length;
-    lane.blocked_count = lane.cards.filter((card) => card.status === "blocked" || Boolean(card.blocker_reason)).length;
-  }
-  snapshot.counters.total_tasks = cards.length;
-  snapshot.counters.blocked_tasks = cards.filter((card) => card.status === "blocked").length;
-  snapshot.counters.in_progress_tasks = cards.filter((card) => card.status === "in_progress").length;
-  return snapshot;
-}
-
-function readString(value: unknown, fallback = "n/a"): string {
-  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
-}
-
-export default function TasksPage() {
+export default function TasksPage(): React.ReactElement {
   const actor = useActor();
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [assignTarget, setAssignTarget] = useState("");
-  const [transitionTarget, setTransitionTarget] = useState<TaskStatus | "">("");
-  const [transitionReason, setTransitionReason] = useState("");
-  const [blockerReason, setBlockerReason] = useState("");
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [dragState, setDragState] = useState<DragState>(null);
-  const [dragOverLane, setDragOverLane] = useState<string | null>(null);
-  const [optimisticBoard, setOptimisticBoard] = useState<BoardSnapshot | null>(null);
-  const [isMutating, setIsMutating] = useState(false);
-  const [streamPulse, setStreamPulse] = useState(0);
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
+  const projectParam = searchParams?.get("project") ?? null;
+  const viewParam = asView(searchParams?.get("view") ?? null);
+  const taskParam = searchParams?.get("task") ?? null;
+  const sortParam = searchParams?.get("sort") ?? null;
+  const statusParam = searchParams?.get("status") ?? null;
+
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string>(
+    projectParam ?? ""
+  );
+  const [view, setView] = React.useState<TasksView>(viewParam);
+  const [openTaskId, setOpenTaskId] = React.useState<string | null>(taskParam);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
+  const [lastSelectedId, setLastSelectedId] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [isMutating, setIsMutating] = React.useState(false);
+  const [refreshSignal, setRefreshSignal] = React.useState(0);
+  const [filterQuery, setFilterQuery] = React.useState("");
+  const [reopenedFilterActive, setReopenedFilterActive] = React.useState(false);
+  const [statusFilter, setStatusFilter] = React.useState<TaskStatus | null>(
+    asTaskStatus(statusParam)
+  );
+
+  const initialSortKey = (sortParam?.split(":")[0] as ListSortKey) ?? "age";
+  const initialSortDir = (sortParam?.split(":")[1] as ListSortDir) ?? "desc";
+  const [sortKey, setSortKey] = React.useState<ListSortKey>(
+    ["title", "status", "priority", "assignee", "age"].includes(initialSortKey)
+      ? initialSortKey
+      : "age"
+  );
+  const [sortDir, setSortDir] = React.useState<ListSortDir>(
+    initialSortDir === "asc" ? "asc" : "desc"
+  );
+
+  // ---------------------------------------------------------------- queries
   const projectsQuery = usePollingQuery(
-    () => listProjects({ actorId: actor.actorId }),
+    () => listProjects({ actorId: actor.actorId, actorRole: actor.actorRole }),
     `projects:${actor.actorId}`,
     { enabled: actor.ready, intervalMs: 30_000 }
   );
 
-  useEffect(() => {
+  React.useEffect(() => {
+    if (selectedProjectId) return;
     const first = projectsQuery.data?.items[0]?.id;
-    if (!selectedProjectId && first) setSelectedProjectId(first);
+    if (first) setSelectedProjectId(first);
   }, [projectsQuery.data?.items, selectedProjectId]);
 
   const processTemplateQuery = usePollingQuery(
@@ -130,565 +114,475 @@ export default function TasksPage() {
     { enabled: actor.ready, intervalMs: 120_000 }
   );
 
+  const enabled = actor.ready && Boolean(selectedProjectId);
+
   const stream = useResilientEventStream({
-    enabled: actor.ready && Boolean(selectedProjectId),
-    connect: () => openProjectEventStream(selectedProjectId, actor.actorId || "owner-dev"),
+    enabled,
+    connect: () =>
+      openProjectEventStream(selectedProjectId, actor.actorId || "owner-dev"),
     onEvent: (event) => {
       if (!event.data) return;
       try {
         const parsed = JSON.parse(event.data) as { type?: string };
         if (parsed.type === "heartbeat") return;
-      } catch { /* non-JSON */ }
-      setStreamPulse((current) => current + 1);
-    }
+      } catch {
+        // ignore non-JSON
+      }
+      setRefreshSignal((value) => value + 1);
+    },
   });
 
   const boardQuery = usePollingQuery(
-    () => (selectedProjectId ? getBoard({ actorId: actor.actorId }, selectedProjectId) : Promise.resolve(emptyBoard)),
-    `board:${actor.actorId}:${selectedProjectId ?? "_"}`,
-    { enabled: actor.ready && Boolean(selectedProjectId), initialData: emptyBoard, intervalMs: stream.status === "connected" ? 60_000 : 10_000 }
+    () =>
+      selectedProjectId
+        ? getBoard({ actorId: actor.actorId }, selectedProjectId)
+        : Promise.resolve(EMPTY_BOARD),
+    `board:${actor.actorId}:${selectedProjectId || "_"}`,
+    {
+      enabled,
+      initialData: EMPTY_BOARD,
+      intervalMs: stream.status === "connected" ? 60_000 : 10_000,
+    }
   );
 
-  const agentsQuery = usePollingQuery(
-    () => listAgents({ actorId: actor.actorId }, { projectId: selectedProjectId, role: "worker", limit: 200 }),
-    `agents-worker:${actor.actorId}:${selectedProjectId ?? "_"}`,
-    { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
+  const tasksQuery = usePollingQuery(
+    () =>
+      listTasks(
+        { actorId: actor.actorId, actorRole: actor.actorRole },
+        { projectId: selectedProjectId, limit: 500 }
+      ),
+    `tasks:${actor.actorId}:${selectedProjectId || "_"}`,
+    {
+      enabled,
+      intervalMs: stream.status === "connected" ? 60_000 : 10_000,
+    }
   );
 
   const projectAgentsQuery = usePollingQuery(
-    () => listAgents({ actorId: actor.actorId }, { projectId: selectedProjectId, limit: 200 }),
-    `agents-all:${actor.actorId}:${selectedProjectId ?? "_"}`,
-    { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
+    () =>
+      listAgents(
+        { actorId: actor.actorId, actorRole: actor.actorRole },
+        { projectId: selectedProjectId, limit: 200 }
+      ),
+    `agents-all:${actor.actorId}:${selectedProjectId || "_"}`,
+    { enabled, intervalMs: 60_000 }
   );
-
-  const board = optimisticBoard ?? boardQuery.data ?? emptyBoard;
-  const orderedLanes = useMemo(() => sortLanes(board.lanes), [board.lanes]);
-
-  useEffect(() => { if (boardQuery.data) setOptimisticBoard(boardQuery.data); }, [boardQuery.data]);
-
-  const selectedTask = useMemo(() => {
-    for (const lane of orderedLanes) {
-      const found = lane.cards.find((card) => card.id === selectedTaskId);
-      if (found) return found;
-    }
-    return null;
-  }, [orderedLanes, selectedTaskId]);
 
   const timelineQuery = usePollingQuery(
-    () => (selectedTaskId ? getTaskTimeline({ actorId: actor.actorId }, selectedTaskId) : Promise.resolve(null as never)),
-    `timeline:${actor.actorId}:${selectedTaskId ?? "_"}`,
-    { enabled: actor.ready && Boolean(selectedTaskId), intervalMs: stream.status === "connected" ? 45_000 : 10_000 }
+    () =>
+      openTaskId
+        ? getTaskTimeline({ actorId: actor.actorId }, openTaskId)
+        : Promise.resolve(null as never),
+    `timeline:${actor.actorId}:${openTaskId ?? "_"}`,
+    {
+      enabled: actor.ready && Boolean(openTaskId),
+      intervalMs: stream.status === "connected" ? 45_000 : 10_000,
+    }
   );
 
-  useEffect(() => {
-    const firstTask = orderedLanes.flatMap((lane) => lane.cards)[0]?.id;
-    if (!selectedTaskId && firstTask) { setSelectedTaskId(firstTask); return; }
-    if (selectedTaskId) {
-      const exists = orderedLanes.some((lane) => lane.cards.some((card) => card.id === selectedTaskId));
-      if (!exists) setSelectedTaskId(firstTask ?? "");
-    }
-  }, [orderedLanes, selectedTaskId]);
-
-  const selectedTaskAssignedTo = selectedTask?.assigned_to ?? null;
-  const selectedTaskIdForEffect = selectedTask?.id ?? null;
-  useEffect(() => {
-    if (!selectedTaskIdForEffect) {
-      setAssignTarget("");
-      return;
-    }
-    setAssignTarget(selectedTaskAssignedTo ?? "");
-  }, [selectedTaskIdForEffect, selectedTaskAssignedTo]);
-
-  useEffect(() => {
-    if (!streamPulse) return;
+  // ---------------------------------------------------------------- SSE fan-out
+  React.useEffect(() => {
+    if (!refreshSignal || !selectedProjectId) return;
     void boardQuery.refresh();
-    if (selectedTaskId) void timelineQuery.refresh();
-  }, [boardQuery, selectedTaskId, streamPulse, timelineQuery]);
+    void tasksQuery.refresh();
+    if (openTaskId) void timelineQuery.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
-  const transitionMatrix = useMemo(() => {
+  // ---------------------------------------------------------------- URL sync
+  const writeUrl = React.useCallback(
+    (
+      patch: Partial<{
+        project: string | null;
+        view: TasksView;
+        task: string | null;
+        sort: string | null;
+        status: string | null;
+      }>
+    ) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      if (patch.project !== undefined) {
+        if (patch.project) params.set("project", patch.project);
+        else params.delete("project");
+      }
+      if (patch.view !== undefined) {
+        if (patch.view === "board") params.delete("view");
+        else params.set("view", patch.view);
+      }
+      if (patch.task !== undefined) {
+        if (patch.task) params.set("task", patch.task);
+        else params.delete("task");
+      }
+      if (patch.sort !== undefined) {
+        if (patch.sort) params.set("sort", patch.sort);
+        else params.delete("sort");
+      }
+      if (patch.status !== undefined) {
+        if (patch.status) params.set("status", patch.status);
+        else params.delete("status");
+      }
+      const qs = params.toString();
+      router.replace(qs ? `/tasks?${qs}` : "/tasks");
+    },
+    [router, searchParams]
+  );
+
+  React.useEffect(() => {
+    if (!selectedProjectId) return;
+    if (projectParam === selectedProjectId) return;
+    writeUrl({ project: selectedProjectId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId]);
+
+  React.useEffect(() => {
+    if (viewParam === view) return;
+    writeUrl({ view });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  React.useEffect(() => {
+    if ((taskParam ?? null) === (openTaskId ?? null)) return;
+    writeUrl({ task: openTaskId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTaskId]);
+
+  // ---------------------------------------------------------------- derived
+  const board = boardQuery.data ?? EMPTY_BOARD;
+  const tasks = tasksQuery.data?.items ?? [];
+
+  const cardsById = React.useMemo(() => {
+    const map = new Map<string, BoardCard>();
+    for (const lane of board.lanes) {
+      for (const card of lane.cards) map.set(card.id, card);
+    }
+    return map;
+  }, [board.lanes]);
+
+  const transitionMatrix = React.useMemo(() => {
     const matrix = processTemplateQuery.data?.transition_matrix;
-    if (!matrix || Object.keys(matrix).length === 0) return FALLBACK_TRANSITION_MATRIX;
-    const normalized: Record<TaskStatus, TaskStatus[]> = { ...FALLBACK_TRANSITION_MATRIX };
-    for (const [fromStatus, nextStatuses] of Object.entries(matrix)) {
-      const from = asTaskStatus(fromStatus);
-      if (!from) continue;
-      normalized[from] = nextStatuses.map((item) => asTaskStatus(item)).filter((item): item is TaskStatus => Boolean(item));
+    if (!matrix || Object.keys(matrix).length === 0) {
+      return FALLBACK_TRANSITION_MATRIX;
+    }
+    const normalized: Record<TaskStatus, TaskStatus[]> = {
+      ...FALLBACK_TRANSITION_MATRIX,
+    };
+    for (const [from, next] of Object.entries(matrix)) {
+      const f = asTaskStatus(from);
+      if (!f) continue;
+      normalized[f] = next
+        .map((value) => asTaskStatus(value))
+        .filter((value): value is TaskStatus => Boolean(value));
     }
     return normalized;
   }, [processTemplateQuery.data?.transition_matrix]);
 
-  const allowedTransitions = useMemo(() => {
-    if (!selectedTask) return [];
-    return transitionMatrix[selectedTask.status] ?? [];
-  }, [selectedTask, transitionMatrix]);
-
-  useEffect(() => {
-    if (!selectedTask) { setTransitionTarget(""); setTransitionReason(""); setBlockerReason(""); return; }
-    if (!transitionTarget || !allowedTransitions.includes(transitionTarget)) setTransitionTarget(allowedTransitions[0] ?? "");
-  }, [allowedTransitions, selectedTask, transitionTarget]);
-
-  const boardCardsById = useMemo(() => {
-    const map = new Map<string, BoardCard>();
-    for (const lane of orderedLanes) for (const card of lane.cards) map.set(card.id, card);
-    return map;
-  }, [orderedLanes]);
-
-  const taskDetails = timelineQuery.data?.task;
-  const handovers = (timelineQuery.data?.handovers ?? []) as Array<Record<string, unknown>>;
-  const transitions = timelineQuery.data?.transitions ?? [];
-  const evaluations = timelineQuery.data?.evaluations ?? [];
-  const memoryEntries = (timelineQuery.data?.memory ?? []) as Array<Record<string, unknown>>;
-  const worklogs = (timelineQuery.data?.worklogs ?? []) as Array<Record<string, unknown>>;
-  const projectAgents = projectAgentsQuery.data?.items ?? [];
-  const latestEvaluation = evaluations[0] ?? null;
-
-  const dependencyIds = useMemo(() => taskDetails?.dependencies ?? [], [taskDetails?.dependencies]);
-  const dependencyCards = useMemo(
-    () => dependencyIds.map((id) => boardCardsById.get(id)).filter((item): item is BoardCard => Boolean(item)),
-    [boardCardsById, dependencyIds]
+  const isTransitionAllowed = React.useCallback(
+    (from: TaskStatus, to: TaskStatus): boolean =>
+      (transitionMatrix[from] ?? []).includes(to),
+    [transitionMatrix]
   );
 
-  const isTransitionAllowed = (fromStatus: TaskStatus, toStatus: TaskStatus): boolean =>
-    (transitionMatrix[fromStatus] ?? []).includes(toStatus);
+  const openCard = openTaskId ? cardsById.get(openTaskId) ?? null : null;
+  const allowedTransitionsForOpen = React.useMemo(() => {
+    if (!openCard) return [] as TaskStatus[];
+    return transitionMatrix[openCard.status] ?? [];
+  }, [openCard, transitionMatrix]);
 
-  const applyOptimisticMove = (taskId: string, toStatus: TaskStatus, options?: TransitionOptions) => {
-    if (!board.lanes.length) return false;
-    const draft = cloneBoard(board);
-    let movedCard: BoardCard | null = null;
-    for (const lane of draft.lanes) {
-      const index = lane.cards.findIndex((card) => card.id === taskId);
-      if (index >= 0) { movedCard = lane.cards[index]; lane.cards.splice(index, 1); break; }
+  const validBulkTransitions = React.useMemo<TaskStatus[]>(() => {
+    if (selectedIds.size === 0) return [];
+    let intersection: Set<TaskStatus> | null = null;
+    for (const id of selectedIds) {
+      const card = cardsById.get(id);
+      if (!card) continue;
+      const next: Set<TaskStatus> = new Set<TaskStatus>(
+        transitionMatrix[card.status] ?? []
+      );
+      if (intersection === null) {
+        intersection = next;
+      } else {
+        const filtered = new Set<TaskStatus>();
+        for (const value of intersection) {
+          if (next.has(value)) filtered.add(value);
+        }
+        intersection = filtered;
+      }
     }
-    if (!movedCard) return false;
-    const targetLane = draft.lanes.find((lane) => lane.status === toStatus);
-    if (!targetLane) return false;
-    targetLane.cards.unshift({
-      ...movedCard, status: toStatus,
-      assigned_to: options?.assignedTo ?? movedCard.assigned_to,
-      blocker_reason: toStatus === "blocked" ? options?.blockerReason ?? movedCard.blocker_reason : null,
-      updated_at: new Date().toISOString()
-    });
-    setOptimisticBoard(recomputeBoardCounters(draft));
-    return true;
-  };
+    if (!intersection) return [];
+    return Array.from(intersection).filter(
+      (status): status is TaskStatus =>
+        status !== "assigned" && status !== "blocked"
+    );
+  }, [cardsById, selectedIds, transitionMatrix]);
 
-  const runTransition = async (taskId: string, targetStatus: TaskStatus, options?: TransitionOptions) => {
-    const activeTask = boardCardsById.get(taskId);
-    if (!activeTask) return;
-    if (!isTransitionAllowed(activeTask.status, targetStatus)) {
-      setActionError(`Transition not allowed: ${TASK_STATUS_LABELS[activeTask.status]} -> ${TASK_STATUS_LABELS[targetStatus]}`);
-      return;
-    }
+  // ---------------------------------------------------------------- mutations
+  const runTransition = async (
+    cardId: string,
+    target: TaskStatus,
+    options: { reason?: string; blockerReason?: string; assignedTo?: string } = {}
+  ) => {
     setActionError(null);
     setIsMutating(true);
-    const previousBoard = board;
-    applyOptimisticMove(taskId, targetStatus, options);
     try {
-      await transitionTask({ actorId: actor.actorId }, taskId, {
-        target_status: targetStatus, reason: options?.reason,
-        blocker_reason: options?.blockerReason, assigned_to: options?.assignedTo
+      await transitionTask({ actorId: actor.actorId }, cardId, {
+        target_status: target,
+        reason: options.reason,
+        blocker_reason: options.blockerReason,
+        assigned_to: options.assignedTo,
       });
-      await Promise.all([boardQuery.refresh(), timelineQuery.refresh()]);
-    } catch (err) {
-      setOptimisticBoard(previousBoard);
-      setActionError(err instanceof Error ? err.message : "Transition failed");
-    } finally { setIsMutating(false); }
+      await Promise.all([boardQuery.refresh(), tasksQuery.refresh()]);
+      if (openTaskId === cardId) {
+        await timelineQuery.refresh();
+      }
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Transition failed."
+      );
+    } finally {
+      setIsMutating(false);
+    }
   };
 
-  const submitTransition = async () => {
-    if (!selectedTask || !transitionTarget) return;
-    if (transitionTarget === "assigned" && !assignTarget) { setActionError("Select a worker before assigning."); return; }
-    if (transitionTarget === "blocked" && !blockerReason.trim()) { setActionError("Provide blocker reason before marking blocked."); return; }
-    await runTransition(selectedTask.id, transitionTarget, {
-      reason: transitionReason.trim() || undefined,
-      blockerReason: transitionTarget === "blocked" ? blockerReason.trim() : undefined,
-      assignedTo: transitionTarget === "assigned" ? assignTarget : undefined
-    });
-  };
-
-  const onDropLane = async (laneStatus: string) => {
-    if (!dragState) return;
-    const destination = asTaskStatus(laneStatus);
-    const source = dragState.fromStatus;
-    const taskId = dragState.taskId;
-    setDragState(null);
-    setDragOverLane(null);
-    if (!destination) { setActionError(`Unsupported lane: ${laneStatus}`); return; }
-    if (!isTransitionAllowed(source, destination)) {
-      setActionError(`Transition not allowed: ${TASK_STATUS_LABELS[source]} -> ${TASK_STATUS_LABELS[destination]}`);
+  const handleBoardTransition = async (cardId: string, target: TaskStatus) => {
+    const card = cardsById.get(cardId);
+    if (!card) return;
+    if (!isTransitionAllowed(card.status, target)) {
+      setActionError(
+        `Transition not allowed: ${card.status} → ${target}.`
+      );
       return;
     }
-    setSelectedTaskId(taskId);
-    await runTransition(taskId, destination);
+    await runTransition(cardId, target);
   };
 
-  const oneClickActions = allowedTransitions.filter((status) => !["assigned", "blocked"].includes(status)).slice(0, 5);
+  const handleBulkApply = async (target: TaskStatus) => {
+    setActionError(null);
+    setIsMutating(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(
+        ids.map((id) =>
+          transitionTask({ actorId: actor.actorId }, id, {
+            target_status: target,
+          })
+        )
+      );
+      setSelectedIds(new Set());
+      await Promise.all([boardQuery.refresh(), tasksQuery.refresh()]);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Bulk transition failed."
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  // ---------------------------------------------------------------- card click / select
+  const orderedCardIds = React.useMemo(() => {
+    const ids: string[] = [];
+    for (const lane of board.lanes) {
+      for (const card of lane.cards) ids.push(card.id);
+    }
+    return ids;
+  }, [board.lanes]);
+
+  const handleCardClick = (
+    cardId: string,
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      handleToggleSelect(cardId, event);
+      return;
+    }
+    setSelectedIds(new Set());
+    setOpenTaskId(cardId);
+    setLastSelectedId(cardId);
+  };
+
+  const handleToggleSelect = (
+    cardId: string,
+    event: React.MouseEvent | React.ChangeEvent
+  ) => {
+    const isShift =
+      "shiftKey" in event ? Boolean((event as React.MouseEvent).shiftKey) : false;
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (isShift && lastSelectedId && lastSelectedId !== cardId) {
+        const a = orderedCardIds.indexOf(lastSelectedId);
+        const b = orderedCardIds.indexOf(cardId);
+        if (a >= 0 && b >= 0) {
+          const [start, end] = a < b ? [a, b] : [b, a];
+          for (let i = start; i <= end; i++) next.add(orderedCardIds[i]);
+          return next;
+        }
+      }
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+    setLastSelectedId(cardId);
+  };
+
+  const handleAppendWorklog = async (payload: {
+    task_id: string;
+    agent_id: string;
+    action_type: string;
+    summary: string;
+    detailed_log: string;
+    artifacts: string[];
+    confidence: number;
+  }) => {
+    await appendWorklog({ actorId: actor.actorId }, payload);
+    await timelineQuery.refresh();
+  };
+
+  // ---------------------------------------------------------------- empty state
+  const totalCards = board.lanes.reduce(
+    (sum, lane) => sum + lane.cards.length,
+    0
+  );
+  const showEmptyState =
+    enabled && view === "board" && !boardQuery.isLoading && totalCards === 0;
+
+  // ---------------------------------------------------------------- view switching
+  const onChangeView = (next: TasksView) => setView(next);
+
+  const onOpenTask = (taskId: string) => setOpenTaskId(taskId);
+
+  const onChangeListSort = (key: ListSortKey) => {
+    let nextDir: ListSortDir;
+    if (sortKey === key) {
+      nextDir = sortDir === "asc" ? "desc" : "asc";
+    } else {
+      nextDir = key === "age" ? "desc" : "asc";
+    }
+    setSortKey(key);
+    setSortDir(nextDir);
+    writeUrl({ sort: `${key}:${nextDir}` });
+  };
+
+  const onShowBlocked = () => {
+    setStatusFilter("blocked");
+    writeUrl({ status: "blocked" });
+    setView("list");
+  };
+
+  const onToggleReopened = () => {
+    setReopenedFilterActive((value) => !value);
+  };
+
+  const streamLabel =
+    stream.status === "connected"
+      ? "live"
+      : stream.status === "retrying"
+      ? `retry ${stream.reconnectCount}`
+      : "offline";
+  const streamTone =
+    stream.status === "connected"
+      ? ("ok" as const)
+      : stream.status === "retrying"
+      ? ("warn" as const)
+      : ("danger" as const);
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <section className="surface p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">Execution Board</p>
-            <h3 className="mt-1 font-display text-xl font-bold text-ink">Kanban Workflow Console</h3>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
-              className="rounded-lg border border-edge bg-canvas-surface px-3 py-2 text-sm text-ink outline-none focus:border-signal/50"
-            >
-              <option value="">Select Project</option>
-              {(projectsQuery.data?.items ?? []).map((project) => (
-                <option key={project.id} value={project.id}>{project.name}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => { void boardQuery.refresh(); if (selectedTaskId) void timelineQuery.refresh(); }}
-              className="rounded-lg border border-edge bg-canvas-surface px-3 py-2 text-xs text-ink-secondary transition hover:border-edge-bright hover:text-ink"
-            >
-              Refresh
-            </button>
-          </div>
-        </div>
-        <div className="mt-2">
-          <QueryState isLoading={boardQuery.isLoading} error={boardQuery.error} lastUpdatedAt={boardQuery.lastUpdatedAt} />
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px]">
-          <span className="rounded-full border border-edge bg-canvas-surface px-2.5 py-1 text-ink-secondary">
-            Total: {board.counters.total_tasks}
-          </span>
-          <span className="rounded-full border border-danger/20 bg-danger-dim px-2.5 py-1 text-danger">
-            Blocked: {board.counters.blocked_tasks}
-          </span>
-          <span className="rounded-full border border-signal/20 bg-signal-dim px-2.5 py-1 text-signal">
-            In Progress: {board.counters.in_progress_tasks}
-          </span>
-          <span className={[
-            "flex items-center gap-1.5 rounded-full border px-2.5 py-1",
-            stream.status === "connected" ? "border-ok/20 bg-ok-dim text-ok"
-              : stream.status === "retrying" ? "border-warn/20 bg-warn-dim text-warn"
-              : "border-edge bg-canvas-surface text-ink-tertiary"
-          ].join(" ")}>
-            <span className={`live-dot ${stream.status === "retrying" ? "live-dot-warn" : stream.status !== "connected" ? "live-dot-danger" : ""}`} />
-            Stream: {stream.status}
-            {stream.status === "retrying" ? ` (${stream.reconnectCount})` : ""}
-          </span>
-          <button
-            type="button"
-            onClick={stream.reconnect}
-            className="rounded-full border border-edge bg-canvas-surface px-2.5 py-1 text-ink-tertiary transition hover:border-edge-bright hover:text-ink-secondary"
-          >
-            Reconnect
-          </button>
-        </div>
-      </section>
+    <div className="space-y-4 pb-24">
+      <ControlBar
+        projects={projectsQuery.data?.items ?? []}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={(id) => {
+          setSelectedProjectId(id);
+          setOpenTaskId(null);
+          setSelectedIds(new Set());
+        }}
+        view={view}
+        onChangeView={onChangeView}
+        blockedCount={board.counters.blocked_tasks}
+        reopenedCount={tasks.filter((task) => task.status === "reopened").length}
+        reopenedFilterActive={reopenedFilterActive}
+        onToggleReopenedFilter={onToggleReopened}
+        onShowBlocked={onShowBlocked}
+        query={filterQuery}
+        onQueryChange={setFilterQuery}
+        streamLabel={streamLabel}
+        streamTone={streamTone}
+      />
 
-      {/* Board + Inspector */}
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_420px]">
-        {/* Kanban lanes */}
-        <section className="surface p-4">
-          <div className="soft-scroll overflow-x-auto pb-2">
-            <div className="flex min-w-max gap-3">
-              {orderedLanes.map((lane) => {
-                const laneStatus = asTaskStatus(lane.status);
-                const isDraggedOver = dragOverLane === lane.status;
-                const canDropHere = Boolean(dragState && laneStatus && isTransitionAllowed(dragState.fromStatus, laneStatus));
-                const wipExceeded = lane.count > lane.wip_limit;
-                return (
-                  <article
-                    key={lane.status}
-                    className={[
-                      "w-[280px] shrink-0 rounded-xl border p-3 transition-all duration-200",
-                      wipExceeded ? "border-warn/40 surface-inset" : "border-edge surface-inset",
-                      isDraggedOver ? (canDropHere ? "glow-signal" : "glow-danger") : ""
-                    ].join(" ")}
-                    onDragOver={(event) => {
-                      if (!dragState || !laneStatus) return;
-                      if (!isTransitionAllowed(dragState.fromStatus, laneStatus)) { event.dataTransfer.dropEffect = "none"; return; }
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                      setDragOverLane(lane.status);
-                    }}
-                    onDrop={() => void onDropLane(lane.status)}
-                    onDragLeave={() => setDragOverLane((current) => (current === lane.status ? null : current))}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">{lane.label}</p>
-                        <p className="mt-0.5 font-mono text-[9px] text-ink-ghost">
-                          WIP {lane.count}/{lane.wip_limit} | blocked {lane.blocked_count}
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-edge bg-canvas-base px-2 py-0.5 font-mono text-[10px] text-ink-secondary">
-                        {lane.count}
-                      </span>
-                    </div>
-                    {/* WIP bar */}
-                    <div className="mt-2 h-1 rounded-full bg-edge/50">
-                      <div
-                        className={["h-1 rounded-full transition-all", wipExceeded ? "bg-warn" : "bg-signal/60"].join(" ")}
-                        style={{ width: `${Math.min(100, Math.round((lane.count / Math.max(1, lane.wip_limit)) * 100))}%` }}
-                      />
-                    </div>
+      {actionError ? (
+        <p className="rounded-lg border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
+          {actionError}
+        </p>
+      ) : null}
 
-                    <div className="soft-scroll mt-3 max-h-[66vh] space-y-2 overflow-y-auto pr-1">
-                      {lane.cards.map((card) => (
-                        <button
-                          key={card.id}
-                          type="button"
-                          draggable
-                          onDragStart={() => { if (!asTaskStatus(card.status)) return; setDragState({ taskId: card.id, fromStatus: card.status }); setDragOverLane(null); }}
-                          onDragEnd={() => { setDragState(null); setDragOverLane(null); }}
-                          onClick={() => setSelectedTaskId(card.id)}
-                          className={[
-                            "w-full rounded-lg border px-3 py-2.5 text-left transition-all duration-200",
-                            selectedTaskId === card.id
-                              ? "glow-signal border-signal/40 bg-signal-dim"
-                              : "border-edge bg-canvas-base hover:border-edge-bright"
-                          ].join(" ")}
-                        >
-                          <p className="text-sm font-medium text-ink">{card.title}</p>
-                          <p className="mt-1 font-mono text-[10px] text-ink-tertiary">
-                            {card.priority.toUpperCase()} | {card.assigned_to ? card.assigned_to : "unassigned"}
-                          </p>
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-edge bg-canvas-deep px-2 py-0.5 font-mono text-[9px] text-ink-ghost">
-                              deps {card.dependency_count}
-                            </span>
-                            {card.blocker_reason ? (
-                              <span className="rounded-full border border-danger/30 bg-danger-dim px-2 py-0.5 font-mono text-[9px] text-danger">
-                                blocked
-                              </span>
-                            ) : null}
-                          </div>
-                          {card.blocker_reason ? <p className="mt-1 text-[11px] text-danger">{card.blocker_reason}</p> : null}
-                        </button>
-                      ))}
-                      {lane.cards.length === 0 ? (
-                        <p className="rounded-lg border border-dashed border-edge bg-canvas-base/50 px-3 py-4 text-center font-mono text-[10px] text-ink-ghost">
-                          Drop a task here
-                        </p>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
+      {showEmptyState ? (
+        <div className="surface flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">
+            Empty board
+          </p>
+          <p className="font-display text-lg font-semibold text-ink">
+            No tasks yet
+          </p>
+          <p className="max-w-md text-sm text-ink-tertiary">
+            Tasks created on this project will appear here. Create the first
+            one to begin.
+          </p>
+          <Button type="button" variant="primary" size="sm" disabled>
+            <Plus className="h-3.5 w-3.5" /> New task
+          </Button>
+        </div>
+      ) : view === "board" ? (
+        <section className="surface p-3">
+          <BoardView
+            board={board}
+            selectedIds={selectedIds}
+            openTaskId={openTaskId}
+            isTransitionAllowed={isTransitionAllowed}
+            onTransition={handleBoardTransition}
+            onCardClick={handleCardClick}
+            onToggleSelect={handleToggleSelect}
+          />
         </section>
+      ) : view === "list" ? (
+        <ListView
+          tasks={tasks}
+          query={filterQuery}
+          statusFilter={statusFilter}
+          reopenedFilterActive={reopenedFilterActive}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onChangeSort={onChangeListSort}
+          onOpenTask={onOpenTask}
+        />
+      ) : (
+        <TimelineView tasks={tasks} onOpenTask={onOpenTask} />
+      )}
 
-        {/* Task Inspector */}
-        <aside className="surface p-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">Task Inspector</p>
-          {selectedTask ? (
-            <div className="mt-3 space-y-3 text-sm">
-              {/* Task header */}
-              <div className="surface-inset rounded-xl p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-display text-base font-semibold text-ink">{selectedTask.title}</p>
-                    <p className="mt-1 font-mono text-[10px] text-ink-ghost">Task: {selectedTask.id}</p>
-                  </div>
-                  <span className={["rounded-full border px-2 py-1 text-[10px] font-medium", TASK_STATUS_STYLES[selectedTask.status]].join(" ")}>
-                    {TASK_STATUS_LABELS[selectedTask.status]}
-                  </span>
-                </div>
-                <p className="mt-2 font-mono text-[11px] text-ink-tertiary">
-                  Assignee: {selectedTask.assigned_to ?? "unassigned"} | Priority: {selectedTask.priority}
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] text-ink-ghost">Updated: {formatDate(selectedTask.updated_at)}</p>
-                {taskDetails?.description ? <p className="mt-2 text-xs text-ink-secondary">{taskDetails.description}</p> : null}
-              </div>
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        validBulkTransitions={validBulkTransitions}
+        isMutating={isMutating}
+        onClear={() => setSelectedIds(new Set())}
+        onApply={handleBulkApply}
+      />
 
-              {/* Transition builder */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Transition Builder</p>
-                <div className="mt-2 grid gap-2">
-                  <select
-                    value={transitionTarget}
-                    onChange={(event) => setTransitionTarget((asTaskStatus(event.target.value) ?? "") as TaskStatus | "")}
-                    className="rounded-lg border border-edge bg-canvas-base px-2 py-2 text-xs text-ink outline-none focus:border-signal/50"
-                  >
-                    <option value="">Select next status</option>
-                    {allowedTransitions.map((status) => (
-                      <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>
-                    ))}
-                  </select>
-                  {transitionTarget === "assigned" ? (
-                    <select value={assignTarget} onChange={(event) => setAssignTarget(event.target.value)}
-                      className="rounded-lg border border-edge bg-canvas-base px-2 py-2 text-xs text-ink outline-none focus:border-signal/50">
-                      <option value="">Select worker</option>
-                      {(agentsQuery.data?.items ?? []).map((agent) => (
-                        <option key={agent.id} value={agent.id}>{agent.name}</option>
-                      ))}
-                    </select>
-                  ) : null}
-                  {transitionTarget === "blocked" ? (
-                    <input value={blockerReason} onChange={(event) => setBlockerReason(event.target.value)}
-                      placeholder="Blocker reason"
-                      className="rounded-lg border border-edge bg-canvas-base px-2 py-2 text-xs text-ink outline-none placeholder:text-ink-ghost focus:border-signal/50" />
-                  ) : null}
-                  <input value={transitionReason} onChange={(event) => setTransitionReason(event.target.value)}
-                    placeholder="Reason (optional)"
-                    className="rounded-lg border border-edge bg-canvas-base px-2 py-2 text-xs text-ink outline-none placeholder:text-ink-ghost focus:border-signal/50" />
-                  <button type="button" disabled={isMutating || !transitionTarget}
-                    onClick={() => void submitTransition()}
-                    className="rounded-lg border border-signal/30 bg-signal-dim px-3 py-2 text-xs font-medium text-signal transition hover:border-signal/50 hover:shadow-glow disabled:cursor-not-allowed disabled:opacity-40">
-                    {isMutating ? "Applying..." : "Apply Transition"}
-                  </button>
-                </div>
-                {oneClickActions.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {oneClickActions.map((status) => (
-                      <button key={status} type="button" disabled={isMutating}
-                        onClick={() => void runTransition(selectedTask.id, status)}
-                        className={["rounded-full border px-2.5 py-1 font-mono text-[10px] transition disabled:opacity-40", TASK_STATUS_STYLES[status]].join(" ")}>
-                        {TASK_STATUS_LABELS[status]}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Dependencies */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Dependencies</p>
-                {dependencyIds.length ? (
-                  <div className="mt-2 space-y-1.5">
-                    {dependencyIds.map((depId) => {
-                      const dep = boardCardsById.get(depId);
-                      return (
-                        <div key={depId} className="rounded-lg border border-edge-muted bg-canvas-deep/50 px-2 py-2 font-mono text-[11px]">
-                          <p className="text-ink-secondary">{dep?.title ?? "Unresolved dependency"}</p>
-                          <p className="mt-0.5 text-ink-ghost">{depId}{dep ? ` - ${TASK_STATUS_LABELS[dep.status]}` : ""}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No dependency edges.</p>}
-              </div>
-
-              {/* Blockers */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Blockers</p>
-                {selectedTask.blocker_reason ? (
-                  <p className="mt-2 rounded-lg border border-danger/20 bg-danger-dim px-2 py-2 text-xs text-danger">{selectedTask.blocker_reason}</p>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No active blocker.</p>}
-              </div>
-
-              {/* Evaluation */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Evaluation State</p>
-                <p className="mt-2 font-mono text-xs text-ink-tertiary">Evaluations: {evaluations.length}</p>
-                {latestEvaluation ? (
-                  <div className="mt-2 rounded-lg border border-edge-muted bg-canvas-deep/50 px-2 py-2 font-mono text-[11px] text-ink-secondary">
-                    <p>Evaluator: {latestEvaluation.evaluator_agent_id}</p>
-                    <p>Average: <span className="text-signal">{((latestEvaluation.score_completion + latestEvaluation.score_quality + latestEvaluation.score_reliability + latestEvaluation.score_handover + latestEvaluation.score_context + latestEvaluation.score_clarity + latestEvaluation.score_improvement) / 7).toFixed(2)}</span></p>
-                    <p className="text-ink-ghost">{formatDate(latestEvaluation.timestamp)}</p>
-                    {latestEvaluation.override_reason ? <p className="mt-1 text-warn">Override: {latestEvaluation.override_reason}</p> : null}
-                  </div>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No evaluations yet.</p>}
-              </div>
-
-              {/* Handovers */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Handover Timeline</p>
-                {handovers.length ? (
-                  <div className="soft-scroll mt-2 max-h-40 space-y-1.5 overflow-auto pr-1">
-                    {handovers.map((handover, index) => (
-                      <div key={readString(handover["id"], `handover-${index}`)} className="rounded-lg border border-edge-muted bg-canvas-deep/50 p-2 font-mono text-[11px]">
-                        <p className="text-ink-secondary">{readString(handover["from_agent_id"])} {"->"} {readString(handover["to_agent_id"])}</p>
-                        <p className="mt-0.5 text-ink-ghost">{readString(handover["pending_work"])}</p>
-                        <p className="mt-0.5 text-ink-ghost">{formatDate(readString(handover["timestamp"], ""))}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No handovers.</p>}
-              </div>
-
-              {/* Transitions */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Transition History</p>
-                {transitions.length ? (
-                  <div className="soft-scroll mt-2 max-h-44 space-y-1.5 overflow-auto pr-1">
-                    {transitions.map((transition, index) => {
-                      const from = asTaskStatus(transition.from_status) ?? "ready";
-                      const to = asTaskStatus(transition.to_status) ?? "ready";
-                      return (
-                        <div key={transition.id || `transition-${index}`} className="rounded-lg border border-edge-muted bg-canvas-deep/50 p-2 font-mono text-[11px]">
-                          <p className="text-ink-secondary">{TASK_STATUS_LABELS[from]} {"->"} {TASK_STATUS_LABELS[to]}</p>
-                          <p className="mt-0.5 text-ink-ghost">Actor: {transition.actor_id}</p>
-                          {transition.reason ? <p className="mt-0.5 text-ink-ghost">Reason: {transition.reason}</p> : null}
-                          <p className="mt-0.5 text-ink-ghost">{formatDate(transition.timestamp)}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No transitions yet.</p>}
-              </div>
-
-              {/* Memory */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Memory Context</p>
-                {memoryEntries.length ? (
-                  <div className="soft-scroll mt-2 max-h-32 space-y-1.5 overflow-auto pr-1">
-                    {memoryEntries.map((memory, index) => (
-                      <div key={readString(memory["id"], `memory-${index}`)} className="rounded-lg border border-edge-muted bg-canvas-deep/50 p-2 text-[11px]">
-                        <p className="font-medium text-ink-secondary">{readString(memory["title"])}</p>
-                        <p className="mt-0.5 text-ink-ghost">{readString(memory["content"])}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No memory entries.</p>}
-              </div>
-
-              {/* Worklog composer */}
-              <WorklogComposer
-                title="Task Quick Log"
-                tasks={timelineQuery.data?.task ? [timelineQuery.data.task] : []}
-                agents={projectAgents}
-                initialTaskId={selectedTask.id}
-                initialAgentId={selectedTask.assigned_to ?? projectAgents[0]?.id}
-                disabledReason={selectedTask ? (projectAgents.length ? null : "No project agents attached.") : "Select a task before logging work."}
-                submitLabel="Append to Timeline"
-                onSubmit={async (payload) => { await appendWorklog({ actorId: actor.actorId }, payload); await timelineQuery.refresh(); }}
-              />
-
-              {/* Worklogs */}
-              <div className="surface-inset rounded-xl p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Worklog Activity</p>
-                {worklogs.length ? (
-                  <div className="soft-scroll mt-2 max-h-32 space-y-1.5 overflow-auto pr-1">
-                    {worklogs.map((worklog, index) => (
-                      <div key={readString(worklog["id"], `worklog-${index}`)} className="rounded-lg border border-edge-muted bg-canvas-deep/50 p-2 font-mono text-[11px]">
-                        <p className="text-ink-secondary">{readString(worklog["action_type"])}</p>
-                        <p className="mt-0.5 text-ink-ghost">{readString(worklog["summary"])}</p>
-                        <p className="mt-0.5 text-ink-ghost">{formatDate(readString(worklog["timestamp"], ""))}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="mt-2 text-xs text-ink-ghost">No worklogs.</p>}
-              </div>
-
-              {actionError ? (
-                <p className="rounded-lg border border-danger/20 bg-danger-dim px-3 py-2 text-xs text-danger">{actionError}</p>
-              ) : null}
-
-              <details className="surface-inset rounded-xl p-3">
-                <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Raw Timeline Payload</summary>
-                <pre className="soft-scroll mt-2 max-h-56 overflow-auto font-mono text-[10px] text-ink-ghost">
-                  {timelineQuery.data ? JSON.stringify(timelineQuery.data, null, 2) : "No timeline data."}
-                </pre>
-              </details>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-ink-tertiary">Select a task card to inspect details.</p>
-          )}
-        </aside>
-      </div>
+      <TaskInspector
+        open={Boolean(openTaskId)}
+        onOpenChange={(next) => {
+          if (!next) setOpenTaskId(null);
+        }}
+        card={openCard}
+        timeline={timelineQuery.data ?? null}
+        timelineLoading={timelineQuery.isLoading}
+        agents={projectAgentsQuery.data?.items ?? []}
+        allowedTransitions={allowedTransitionsForOpen}
+        isMutating={isMutating}
+        actionError={actionError}
+        onTransition={async (target, options) => {
+          if (!openCard) return;
+          await runTransition(openCard.id, target, options);
+        }}
+        onAppendWorklog={handleAppendWorklog}
+        cardsById={cardsById}
+      />
     </div>
   );
 }
