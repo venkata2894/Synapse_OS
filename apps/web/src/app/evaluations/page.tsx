@@ -21,13 +21,13 @@ export default function EvaluationsPage() {
 
   const projectsQuery = usePollingQuery(
     () => listProjects({ actorId: actor.actorId }),
-    [actor.actorId],
+    `projects:${actor.actorId}`,
     { enabled: actor.ready }
   );
 
   const agentsQuery = usePollingQuery(
     () => listAgents({ actorId: actor.actorId }),
-    [actor.actorId],
+    `agents:${actor.actorId}`,
     { enabled: actor.ready }
   );
 
@@ -37,7 +37,7 @@ export default function EvaluationsPage() {
         { actorId: actor.actorId },
         { projectId: projectId || undefined, agentId: agentId || undefined }
       ),
-    [actor.actorId, projectId, agentId],
+    `evaluations:${actor.actorId}:${projectId ?? "_"}:${agentId ?? "_"}`,
     { enabled: actor.ready }
   );
 

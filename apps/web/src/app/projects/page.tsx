@@ -14,7 +14,7 @@ export default function ProjectsPage() {
 
   const projectsQuery = usePollingQuery(
     () => listProjects({ actorId: actor.actorId }),
-    [actor.actorId],
+    `projects:${actor.actorId}`,
     { enabled: actor.ready }
   );
 
@@ -27,13 +27,13 @@ export default function ProjectsPage() {
 
   const tasksQuery = usePollingQuery(
     () => listTasks({ actorId: actor.actorId }, { projectId: selectedProjectId }),
-    [actor.actorId, selectedProjectId],
+    `tasks:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId) }
   );
 
   const evaluationsQuery = usePollingQuery(
     () => listEvaluations({ actorId: actor.actorId }, { projectId: selectedProjectId }),
-    [actor.actorId, selectedProjectId],
+    `evaluations:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId) }
   );
 

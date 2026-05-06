@@ -28,7 +28,7 @@ export default function HomePage() {
   const actor = useActor();
   const query = usePollingQuery(
     () => getDashboardSummary({ actorId: actor.actorId, actorRole: actor.actorRole }),
-    [actor.actorId],
+    `dashboard:${actor.actorId}`,
     { enabled: actor.ready, initialData: emptySummary }
   );
   const summary = query.data ?? emptySummary;

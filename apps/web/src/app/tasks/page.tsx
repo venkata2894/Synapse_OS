@@ -115,7 +115,7 @@ export default function TasksPage() {
 
   const projectsQuery = usePollingQuery(
     () => listProjects({ actorId: actor.actorId }),
-    [actor.actorId],
+    `projects:${actor.actorId}`,
     { enabled: actor.ready, intervalMs: 30_000 }
   );
 
@@ -126,7 +126,7 @@ export default function TasksPage() {
 
   const processTemplateQuery = usePollingQuery(
     () => getDefaultProcessTemplate({ actorId: actor.actorId }),
-    [actor.actorId],
+    `process-template:${actor.actorId}`,
     { enabled: actor.ready, intervalMs: 120_000 }
   );
 
@@ -145,19 +145,19 @@ export default function TasksPage() {
 
   const boardQuery = usePollingQuery(
     () => (selectedProjectId ? getBoard({ actorId: actor.actorId }, selectedProjectId) : Promise.resolve(emptyBoard)),
-    [actor.actorId, selectedProjectId],
+    `board:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), initialData: emptyBoard, intervalMs: stream.status === "connected" ? 60_000 : 10_000 }
   );
 
   const agentsQuery = usePollingQuery(
     () => listAgents({ actorId: actor.actorId }, { projectId: selectedProjectId, role: "worker", limit: 200 }),
-    [actor.actorId, selectedProjectId],
+    `agents-worker:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
   );
 
   const projectAgentsQuery = usePollingQuery(
     () => listAgents({ actorId: actor.actorId }, { projectId: selectedProjectId, limit: 200 }),
-    [actor.actorId, selectedProjectId],
+    `agents-all:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
   );
 
@@ -176,7 +176,7 @@ export default function TasksPage() {
 
   const timelineQuery = usePollingQuery(
     () => (selectedTaskId ? getTaskTimeline({ actorId: actor.actorId }, selectedTaskId) : Promise.resolve(null as never)),
-    [actor.actorId, selectedTaskId],
+    `timeline:${actor.actorId}:${selectedTaskId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedTaskId), intervalMs: stream.status === "connected" ? 45_000 : 10_000 }
   );
 
@@ -189,10 +189,15 @@ export default function TasksPage() {
     }
   }, [orderedLanes, selectedTaskId]);
 
+  const selectedTaskAssignedTo = selectedTask?.assigned_to ?? null;
+  const selectedTaskIdForEffect = selectedTask?.id ?? null;
   useEffect(() => {
-    if (!selectedTask) { setAssignTarget(""); return; }
-    setAssignTarget(selectedTask.assigned_to ?? "");
-  }, [selectedTask?.id]);
+    if (!selectedTaskIdForEffect) {
+      setAssignTarget("");
+      return;
+    }
+    setAssignTarget(selectedTaskAssignedTo ?? "");
+  }, [selectedTaskIdForEffect, selectedTaskAssignedTo]);
 
   useEffect(() => {
     if (!streamPulse) return;

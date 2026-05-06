@@ -63,7 +63,8 @@ export default function OperationsPage() {
   const [streamPulse, setStreamPulse] = useState(0);
 
   const projectsQuery = usePollingQuery(
-    () => listProjects({ actorId: actor.actorId }), [actor.actorId],
+    () => listProjects({ actorId: actor.actorId }),
+    `projects:${actor.actorId}`,
     { enabled: actor.ready, intervalMs: 30_000 }
   );
 
@@ -84,25 +85,25 @@ export default function OperationsPage() {
 
   const staffingQuery = usePollingQuery(
     () => getProjectStaffing({ actorId: actor.actorId }, selectedProjectId),
-    [actor.actorId, selectedProjectId],
+    `staffing:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: stream.status === "connected" ? 60_000 : 10_000 }
   );
 
   const tasksQuery = usePollingQuery(
     () => listTasks({ actorId: actor.actorId }, { projectId: selectedProjectId, limit: 200 }),
-    [actor.actorId, selectedProjectId],
+    `tasks:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: stream.status === "connected" ? 60_000 : 10_000 }
   );
 
   const worklogsQuery = usePollingQuery(
     () => listWorklogs({ actorId: actor.actorId }, { projectId: selectedProjectId, limit: 18 }),
-    [actor.actorId, selectedProjectId],
+    `worklogs:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: stream.status === "connected" ? 45_000 : 10_000 }
   );
 
   const evaluationsQuery = usePollingQuery(
     () => listEvaluations({ actorId: actor.actorId }, { projectId: selectedProjectId, limit: 8 }),
-    [actor.actorId, selectedProjectId],
+    `evaluations:${actor.actorId}:${selectedProjectId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedProjectId), intervalMs: 30_000 }
   );
 
@@ -114,7 +115,7 @@ export default function OperationsPage() {
 
   const timelineQuery = usePollingQuery(
     () => getTaskTimeline({ actorId: actor.actorId }, selectedTaskId),
-    [actor.actorId, selectedTaskId],
+    `timeline:${actor.actorId}:${selectedTaskId ?? "_"}`,
     { enabled: actor.ready && Boolean(selectedTaskId), intervalMs: stream.status === "connected" ? 45_000 : 10_000 }
   );
 

@@ -10,7 +10,7 @@ type UsePollingQueryOptions<T> = {
 
 export function usePollingQuery<T>(
   fetcher: () => Promise<T>,
-  deps: unknown[],
+  queryKey: string,
   options: UsePollingQueryOptions<T> = {}
 ) {
   const { enabled = true, intervalMs = 10_000, initialData = null } = options;
@@ -20,19 +20,12 @@ export function usePollingQuery<T>(
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const hasFetchedRef = useRef(false);
 
-  // Keep fetcher in a ref so `run` doesn't depend on it —
-  // prevents the infinite re-render loop caused by inline arrow functions.
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
   const run = useCallback(async () => {
-    if (!enabled) {
-      return;
-    }
-    // Only show loading spinner on initial fetch, not on background polls.
-    if (!hasFetchedRef.current) {
-      setIsLoading(true);
-    }
+    if (!enabled) return;
+    if (!hasFetchedRef.current) setIsLoading(true);
     try {
       const next = await fetcherRef.current();
       setData(next);
@@ -40,22 +33,18 @@ export function usePollingQuery<T>(
       setLastUpdatedAt(new Date().toISOString());
       hasFetchedRef.current = true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected error";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setIsLoading(false);
     }
   }, [enabled]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     void run();
-  }, [run, ...deps]);
+  }, [run, queryKey]);
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
+    if (!enabled) return;
     const timer = window.setInterval(() => {
       void run();
     }, intervalMs);
@@ -63,14 +52,7 @@ export function usePollingQuery<T>(
   }, [enabled, intervalMs, run]);
 
   return useMemo(
-    () => ({
-      data,
-      error,
-      isLoading,
-      lastUpdatedAt,
-      refresh: run
-    }),
+    () => ({ data, error, isLoading, lastUpdatedAt, refresh: run }),
     [data, error, isLoading, lastUpdatedAt, run]
   );
 }
-

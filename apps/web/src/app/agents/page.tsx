@@ -36,19 +36,19 @@ export default function AgentsPage() {
 
   const agentsQuery = usePollingQuery(
     () => listAgents({ actorId: actor.actorId }, { role: roleFilter || undefined }),
-    [actor.actorId, roleFilter],
+    `agents:${actor.actorId}:${roleFilter ?? "_"}`,
     { enabled: actor.ready }
   );
 
   const tasksQuery = usePollingQuery(
     () => listTasks({ actorId: actor.actorId }),
-    [actor.actorId],
+    `tasks:${actor.actorId}`,
     { enabled: actor.ready }
   );
 
   const evaluationsQuery = usePollingQuery(
     () => listEvaluations({ actorId: actor.actorId }),
-    [actor.actorId],
+    `evaluations:${actor.actorId}`,
     { enabled: actor.ready }
   );
 
