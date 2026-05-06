@@ -322,6 +322,91 @@ export async function appendWorklog(
   });
 }
 
+export interface HandoverRecord {
+  id: string;
+  task_id: string;
+  project_id: string;
+  from_agent_id: string;
+  to_agent_id: string;
+  completed_work: string;
+  pending_work: string;
+  blockers: string;
+  risks: string;
+  next_steps: string;
+  confidence: number;
+  timestamp: string;
+}
+
+export async function createHandover(
+  actor: ActorContext,
+  payload: {
+    task_id: string;
+    project_id: string;
+    from_agent_id: string;
+    to_agent_id: string;
+    completed_work: string;
+    pending_work: string;
+    blockers: string;
+    risks: string;
+    next_steps: string;
+    confidence: number;
+  }
+): Promise<HandoverRecord> {
+  return requestJson<HandoverRecord>("/handovers", {
+    method: "POST",
+    headers: new Headers({
+      ...Object.fromEntries(actorHeaders(actor).entries()),
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+}
+
+/**
+ * Returns recent handovers for a project derived from worklog entries with
+ * action_type="handover". The backend does not currently expose a project-scoped
+ * handover listing endpoint; this is the supported read-only alternative.
+ */
+export async function listProjectHandovers(
+  actor: ActorContext,
+  projectId: string,
+  limit = 25
+): Promise<{ items: WorklogEntry[]; count: number }> {
+  return requestJson<WorklogListResponse>(
+    `/worklogs?project_id=${encodeURIComponent(projectId)}&action_type=handover&limit=${limit}`,
+    {
+      method: "GET",
+      headers: actorHeaders(actor)
+    }
+  );
+}
+
+/**
+ * Optional health readouts. The backend does not currently expose these
+ * endpoints — calls return null so callers can render a "—" fallback.
+ */
+export async function getIdempotencyHealth(actor: ActorContext): Promise<{ size: number } | null> {
+  try {
+    return await requestJson<{ size: number }>("/health/idempotency", {
+      method: "GET",
+      headers: actorHeaders(actor)
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function getOutboxHealth(actor: ActorContext): Promise<{ depth: number } | null> {
+  try {
+    return await requestJson<{ depth: number }>("/health/outbox", {
+      method: "GET",
+      headers: actorHeaders(actor)
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function getDefaultProcessTemplate(actor: ActorContext): Promise<ProcessTemplate> {
   return requestJson<ProcessTemplate>("/process/templates/default", {
     method: "GET",
