@@ -1,9 +1,14 @@
 "use client";
 
 import type { ToolRunRecord } from "@sentientops/contracts";
+import { Clipboard, Check, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { AgentKeyPanel } from "@/components/agent-key-panel";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardSubtitle, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useAgentKey } from "@/hooks/use-agent-key";
 import { callAgentTool, getAgentToolManifest } from "@/lib/api-client";
 import { shortDate } from "@/lib/format";
@@ -32,11 +37,15 @@ export default function ToolConsolePage() {
   const [manifest, setManifest] = useState<{ name: string; description: string }[]>([]);
   const [toolName, setToolName] = useState("");
   const [payloadText, setPayloadText] = useState("{\n  \n}");
-  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : ""
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoadingManifest, setIsLoadingManifest] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [history, setHistory] = useState<ToolRunRecord[]>([]);
+  const [latestResponse, setLatestResponse] = useState<unknown>(null);
+  const [copied, setCopied] = useState(false);
 
   const [presetId, setPresetId] = useState<PresetId>("create_project");
   const [presetFields, setPresetFields] = useState<Record<string, string>>({
@@ -67,6 +76,18 @@ export default function ToolConsolePage() {
     append_worklog: ["task_id", "agent_id", "action_type", "summary", "detailed_log"],
     fetch_task_context: ["task_id"]
   };
+
+  const regenerateKey = () => {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      setIdempotencyKey(crypto.randomUUID());
+    }
+  };
+
+  // Ensure idempotency key is set (covers SSR / older envs that didn't set initial state)
+  useEffect(() => {
+    if (!idempotencyKey) regenerateKey();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isLoaded || !agentKey.trim()) return;
@@ -118,34 +139,48 @@ export default function ToolConsolePage() {
       const response = await callAgentTool(agentKey.trim(), toolName, payload, idempotencyKey.trim() || undefined);
       const record: ToolRunRecord = { id: crypto.randomUUID(), tool: toolName, payload, response: response as Record<string, unknown>, timestamp: new Date().toISOString(), success: true };
       setHistory((previous) => [record, ...previous].slice(0, 20));
+      setLatestResponse(response);
+      regenerateKey();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Tool call failed";
       setError(message);
       const record: ToolRunRecord = { id: crypto.randomUUID(), tool: toolName, payload: {}, response: { error: message }, timestamp: new Date().toISOString(), success: false };
       setHistory((previous) => [record, ...previous].slice(0, 20));
+      setLatestResponse({ error: message });
     } finally { setIsRunning(false); }
+  };
+
+  const copyResponse = async () => {
+    if (latestResponse === null || latestResponse === undefined) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(latestResponse, null, 2));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard not available — silently ignore
+    }
   };
 
   return (
     <section className="space-y-4">
       <AgentKeyPanel value={agentKey} onChange={saveAgentKey} />
 
-      <article className="surface p-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+      <Card>
+        <CardHeader>
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">Agent Tool Runner</p>
-            <h3 className="mt-1 font-display text-xl font-bold text-ink">Guided Presets + Raw JSON</h3>
+            <CardSubtitle>Agent Tool Runner</CardSubtitle>
+            <CardTitle className="mt-1 text-xl">Guided Presets + Raw JSON</CardTitle>
           </div>
           <p className="font-mono text-[10px] text-ink-ghost">
             {isLoadingManifest ? "Loading manifest..." : `${manifest.length} tools`}
           </p>
-        </div>
+        </CardHeader>
 
         {error ? (
-          <p className="mt-3 rounded-lg border border-danger/20 bg-danger-dim px-3 py-2 text-sm text-danger">{error}</p>
+          <p className="mb-3 rounded-lg border border-danger/20 bg-danger-dim px-3 py-2 text-sm text-danger">{error}</p>
         ) : null}
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[340px_1fr]">
+        <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
           {/* Left column — preset + controls */}
           <div className="space-y-3">
             <div className="surface-inset rounded-xl p-3">
@@ -158,16 +193,16 @@ export default function ToolConsolePage() {
               </select>
               <div className="mt-2 space-y-2">
                 {PRESET_FIELDS[presetId].map((field) => (
-                  <input key={field} value={presetFields[field] ?? ""} placeholder={field}
+                  <Input key={field} value={presetFields[field] ?? ""} placeholder={field}
                     onChange={(event) => setPresetFields((previous) => ({ ...previous, [field]: event.target.value }))}
-                    className="w-full rounded-lg border border-edge bg-canvas-base px-3 py-2 font-mono text-xs text-ink outline-none placeholder:text-ink-ghost focus:border-signal/50" />
+                    className="h-9 font-mono text-xs" />
                 ))}
               </div>
-              <button type="button"
+              <Button type="button" variant="outline" size="sm"
                 onClick={() => { setToolName(presetId); setPayloadText(JSON.stringify(presetPayload, null, 2)); }}
-                className="mt-3 w-full rounded-lg border border-info/30 bg-info-dim px-3 py-2 text-xs font-medium text-info transition hover:border-info/50">
+                className="mt-3 w-full">
                 Apply Preset to Payload
-              </button>
+              </Button>
             </div>
 
             <div>
@@ -182,29 +217,83 @@ export default function ToolConsolePage() {
 
             <div>
               <label className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Idempotency Key</label>
-              <input value={idempotencyKey} onChange={(event) => setIdempotencyKey(event.target.value)} placeholder="optional-run-key"
-                className="mt-1 w-full rounded-lg border border-edge bg-canvas-base px-3 py-2 font-mono text-sm text-ink outline-none placeholder:text-ink-ghost focus:border-signal/50" />
+              <div className="mt-1 flex items-center gap-2">
+                <Input
+                  value={idempotencyKey}
+                  onChange={(event) => setIdempotencyKey(event.target.value)}
+                  placeholder="auto-generated UUID"
+                  className="font-mono text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={regenerateKey}
+                  aria-label="Regenerate idempotency key"
+                  title="Regenerate key"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
-            <button type="button" onClick={() => void runTool()} disabled={isRunning || !toolName}
-              className="w-full rounded-lg border border-signal/30 bg-signal-dim px-3 py-2.5 text-sm font-medium text-signal transition hover:border-signal/50 hover:shadow-glow disabled:opacity-40">
+            <Button type="button" variant="primary" onClick={() => void runTool()} disabled={isRunning || !toolName}
+              className="w-full">
               {isRunning ? "Running..." : "Run Tool"}
-            </button>
+            </Button>
           </div>
 
           {/* Right column — JSON editor */}
           <div>
             <label className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-tertiary">Payload JSON</label>
-            <textarea value={payloadText} onChange={(event) => setPayloadText(event.target.value)}
-              className="soft-scroll mt-1 h-72 w-full rounded-xl border border-edge bg-canvas-base px-4 py-3 font-mono text-xs text-ink outline-none placeholder:text-ink-ghost focus:border-signal/50 focus:shadow-glow" />
+            <Textarea value={payloadText} onChange={(event) => setPayloadText(event.target.value)}
+              className="soft-scroll mt-1 h-72 font-mono text-xs" />
           </div>
         </div>
-      </article>
+      </Card>
+
+      {/* Latest response panel */}
+      {latestResponse !== null ? (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardSubtitle>Latest Response</CardSubtitle>
+              <CardTitle className="mt-1 text-lg">Tool Call Result</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="relative">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => void copyResponse()}
+              aria-label="Copy response JSON"
+              title={copied ? "Copied!" : "Copy JSON"}
+              className="absolute right-2 top-2 z-10"
+            >
+              {copied ? <Check className="h-4 w-4 text-signal" /> : <Clipboard className="h-4 w-4" />}
+            </Button>
+            {copied ? (
+              <span className="absolute right-12 top-3 z-10 rounded-md bg-canvas-raised px-2 py-1 font-mono text-[10px] text-signal">
+                Copied!
+              </span>
+            ) : null}
+            <pre className="surface-inset soft-scroll max-h-96 overflow-auto rounded-xl p-4 font-mono text-xs whitespace-pre-wrap text-ink-secondary">
+              {JSON.stringify(latestResponse, null, 2)}
+            </pre>
+          </div>
+        </Card>
+      ) : null}
 
       {/* Run history */}
-      <article className="surface p-5">
-        <h4 className="font-display text-lg font-semibold text-ink">Run History</h4>
-        <div className="mt-3 space-y-3">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardSubtitle>Activity</CardSubtitle>
+            <CardTitle className="mt-1 text-lg">Run History</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-3">
           {history.map((entry) => (
             <div key={entry.id} className="surface-inset rounded-xl p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -216,13 +305,13 @@ export default function ToolConsolePage() {
               </p>
               <details className="mt-2">
                 <summary className="cursor-pointer font-mono text-[10px] text-ink-tertiary hover:text-ink-secondary">Payload</summary>
-                <pre className="soft-scroll mt-1 max-h-40 overflow-auto font-mono text-[10px] text-ink-ghost">
+                <pre className="soft-scroll mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink-ghost">
                   {JSON.stringify(entry.payload, null, 2)}
                 </pre>
               </details>
               <details className="mt-2">
                 <summary className="cursor-pointer font-mono text-[10px] text-ink-tertiary hover:text-ink-secondary">Response</summary>
-                <pre className="soft-scroll mt-1 max-h-48 overflow-auto font-mono text-[10px] text-ink-ghost">
+                <pre className="soft-scroll mt-1 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink-ghost">
                   {JSON.stringify(entry.response, null, 2)}
                 </pre>
               </details>
@@ -230,7 +319,7 @@ export default function ToolConsolePage() {
           ))}
           {!history.length ? <p className="text-sm text-ink-tertiary">No tool runs yet.</p> : null}
         </div>
-      </article>
+      </Card>
     </section>
   );
 }
