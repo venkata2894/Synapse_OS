@@ -3,7 +3,7 @@ import { ClerkProvider, UserButton } from "@clerk/nextjs";
 import { Bricolage_Grotesque, DM_Mono, DM_Sans } from "next/font/google";
 
 import { ClerkActorProvider, LocalTesterActorProvider } from "@/components/actor-provider";
-import { AppShell } from "@/components/app-shell";
+import { ShellWithPalette } from "@/components/shell-with-palette";
 
 import "./globals.css";
 
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en" className="dark">
         <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           <LocalTesterActorProvider>
-            <AppShell
+            <ShellWithPalette
               headerActions={
                 <span className="flex items-center gap-2 rounded-full border border-signal/30 bg-signal-dim px-3 py-1 text-xs font-medium text-signal">
                   <span className="live-dot" />
@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               }
             >
               {children}
-            </AppShell>
+            </ShellWithPalette>
           </LocalTesterActorProvider>
         </body>
       </html>
@@ -53,7 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en" className="dark">
         <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           <ClerkActorProvider>
-            <AppShell
+            <ShellWithPalette
               headerActions={
                 <UserButton
                   appearance={{
@@ -70,7 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               }
             >
               {children}
-            </AppShell>
+            </ShellWithPalette>
           </ClerkActorProvider>
         </body>
       </html>
