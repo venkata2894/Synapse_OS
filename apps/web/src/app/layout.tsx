@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   if (localTesterAuth) {
     return (
-      <html lang="en" className="light">
+      <html lang="en" className="dark">
         <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           <LocalTesterActorProvider>
             <AppShell
@@ -50,11 +50,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <ClerkProvider publishableKey={publishableKey!}>
-      <html lang="en" className="light">
+      <html lang="en" className="dark">
         <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           <ClerkActorProvider>
             <AppShell
-              headerActions={<UserButton appearance={{ elements: { userButtonAvatarBox: "ring-2 ring-edge-bright" } }} />}
+              headerActions={
+                <UserButton
+                  appearance={{
+                    variables: {
+                      colorBackground: "var(--bg-surface)",
+                      colorText: "var(--ink)",
+                      colorPrimary: "var(--signal)",
+                      colorInputBackground: "var(--bg-inset)",
+                      colorInputText: "var(--ink)",
+                    },
+                    elements: { userButtonAvatarBox: "ring-2 ring-signal/40" },
+                  }}
+                />
+              }
             >
               {children}
             </AppShell>
