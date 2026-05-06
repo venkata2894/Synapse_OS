@@ -1,21 +1,33 @@
-type MetricCardProps = {
+import * as React from "react";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/cn";
+
+type Tone = "signal" | "warn" | "danger" | "accent" | "info" | "neutral";
+
+const TONE: Record<Tone, string> = {
+  signal: "text-signal",
+  warn: "text-warn",
+  danger: "text-danger",
+  accent: "text-accent",
+  info: "text-info",
+  neutral: "text-ink",
+};
+
+export function MetricCard({
+  label,
+  value,
+  tone = "neutral",
+  className,
+}: {
   label: string;
-  value: string | number;
-  tone?: "neutral" | "teal" | "amber" | "rose";
-};
-
-const toneClasses: Record<NonNullable<MetricCardProps["tone"]>, string> = {
-  neutral: "border-slate-200 bg-white text-ink shadow-sm hover:shadow-md",
-  teal: "border-signal/20 bg-signal-dim text-signal shadow-sm hover:shadow-md ring-1 ring-signal/5",
-  amber: "border-warn/20 bg-warn-dim text-warn shadow-sm hover:shadow-md ring-1 ring-warn/5",
-  rose: "border-danger/20 bg-danger-dim text-danger shadow-sm hover:shadow-md ring-1 ring-danger/5"
-};
-
-export function MetricCard({ label, value, tone = "neutral" }: MetricCardProps) {
+  value: number | string;
+  tone?: Tone;
+  className?: string;
+}) {
   return (
-    <article className={`rounded-2xl border px-4 py-3 transition-all duration-300 ${toneClasses[tone]}`}>
+    <Card className={cn("p-4", className)}>
       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">{label}</p>
-      <p className="mt-2 font-display text-3xl font-bold tabular-nums">{value}</p>
-    </article>
+      <p className={cn("mt-1 font-display text-3xl font-bold", TONE[tone])}>{value}</p>
+    </Card>
   );
 }
