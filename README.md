@@ -198,3 +198,6 @@ curl -X POST http://localhost:8000/api/v1/agent-tools/create_project \
 
 ## Road To MVP
 See [`ROADMAP.md`](./ROADMAP.md) for the planned progression from foundation scaffold to full end-to-end pilot.
+
+## License
+MIT — see [`LICENSE`](./LICENSE).
